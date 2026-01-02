@@ -16,6 +16,8 @@ export interface TimerInstance {
   isRunning: boolean;
   mode: TimerMode;
   alertPoints: number[]; // Seconds at which to ring
+  overtimeThresholdSeconds: number; // 超時寬限秒數 (例如 15 秒)
+  foulCount: number; // 新增：犯規次數
 }
 
 export interface DebatePhase {
@@ -43,7 +45,8 @@ export interface AppearanceConfig {
   theme: ThemeType;
   accentColor: string;
   hotkeys: HotkeyConfig;
-  showInfoBar: boolean; // 是否顯示信息欄
-  backgroundImage?: string; // Base64 or URL
-  customSound?: string; // Base64 or URL
+  showInfoBar: boolean;
+  isMute: boolean;
+  backgroundImage?: string;
+  customSound?: string;
 }
