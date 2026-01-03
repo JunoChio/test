@@ -1,4 +1,3 @@
-
 export enum PhaseType {
   STANDARD = 'STANDARD',
   FREE = 'FREE'
@@ -6,7 +5,7 @@ export enum PhaseType {
 
 export type TimerMode = 'countdown' | 'stopwatch';
 
-export type ThemeType = 'midnight' | 'aurora' | 'ocean' | 'sunset' | 'custom';
+export type ThemeType = 'midnight' | 'aurora' | 'ocean' | 'sunset' | 'minimalist-light' | 'ivory' | 'nordic-frost' | 'custom';
 
 export interface TimerInstance {
   id: string;
@@ -44,6 +43,7 @@ export interface AppearanceConfig {
   iconText: string;
   theme: ThemeType;
   accentColor: string;
+  customBgColor?: string; // 深度自定義背景色
   hotkeys: HotkeyConfig;
   showInfoBar: boolean;
   isMute: boolean;
