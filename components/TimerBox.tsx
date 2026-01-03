@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, RotateCcw, Timer as TimerIcon, Activity, Plus, Minus, Check, X, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { TimerMode } from '../types';
@@ -152,7 +153,6 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
         transform: isRunning ? 'scale(1.02)' : 'scale(1)'
       } as React.CSSProperties}
     >
-      {/* 頂部控制按鈕 */}
       <div className="absolute top-8 left-10 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 max-w-[220px]">
         <div className="flex gap-2">
           <button onClick={() => onCompensate(10)} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/30 border border-emerald-500/20 text-[10px] font-black text-emerald-400 transition-all flex items-center gap-1"><Plus size={10} /> 10秒</button>
@@ -170,70 +170,72 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
         )}
       </div>
 
-      {/* 犯規計數 */}
       <div className="absolute bottom-8 right-10 flex flex-col items-center gap-1.5 group/foul transition-all">
         <span className={`text-[9px] font-black uppercase tracking-[0.3em] transition-all duration-300 ${foulCount > 0 ? 'text-red-500/80' : 'text-slate-600 group-hover/foul:text-slate-400'}`}>犯規數</span>
         <div className="flex items-center bg-white/5 border border-white/10 p-1.5 rounded-2xl shadow-xl backdrop-blur-md transition-all group-hover/foul:bg-white/10 group-hover/foul:border-white/20 group-hover/foul:scale-110">
-          <button onClick={() => onUpdateFoul(-1)} className="p-1.5 hover:bg-red-500/20 text-slate-500 hover:text-red-500 rounded-lg transition-all opacity-0 group-hover/foul:opacity-100 translate-x-2 group-hover/foul:translate-x-0 active:scale-90"><Minus size={14}/></button>
-          <span className={`px-2.5 text-center text-sm font-black transition-all tabular-nums ${foulCount > 0 ? 'text-red-500 scale-110' : 'text-slate-500 opacity-40 group-hover/foul:opacity-100'}`}>{foulCount}</span>
-          <button onClick={() => onUpdateFoul(1)} className="p-1.5 hover:bg-emerald-500/20 text-slate-500 hover:text-emerald-400 rounded-lg transition-all opacity-0 group-hover/foul:opacity-100 -translate-x-2 group-hover/foul:translate-x-0 active:scale-90"><Plus size={14}/></button>
+          <button 
+            onClick={() => onUpdateFoul(-1)} 
+            className="p-1.5 hover:bg-red-500/20 text-slate-500 hover:text-red-500 rounded-lg transition-all opacity-0 group-hover/foul:opacity-100 translate-x-2 group-hover/foul:translate-x-0 active:scale-90"
+            title="減少犯規"
+          >
+            <Minus size={14}/>
+          </button>
+          <span className={`px-2.5 text-center text-sm font-black transition-all tabular-nums ${foulCount > 0 ? 'text-red-500 scale-110' : 'text-slate-500 opacity-40 group-hover/foul:opacity-100'}`}>
+            {foulCount}
+          </span>
+          <button 
+            onClick={() => onUpdateFoul(1)} 
+            className="p-1.5 hover:bg-emerald-500/20 text-slate-500 hover:text-emerald-400 rounded-lg transition-all opacity-0 group-hover/foul:opacity-100 -translate-x-2 group-hover/foul:translate-x-0 active:scale-90"
+            title="增加犯規"
+          >
+            <Plus size={14}/>
+          </button>
         </div>
       </div>
 
-      {/* 模式切換 */}
       <button onClick={(e) => { e.stopPropagation(); onToggleMode?.(); }} className="absolute top-8 right-10 flex items-center gap-2.5 opacity-80 hover:opacity-100 hover:scale-105 transition-all bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl border border-white/10 z-20 shadow-xl">
         {isCountdown ? <TimerIcon size={14} className="text-emerald-400"/> : <Activity size={14} className="text-blue-400 animate-pulse"/>}
         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">{isCountdown ? '倒計時' : '秒錶模式'}</span>
       </button>
 
-      {/* 標籤 */}
       <div className="flex items-center gap-3 mb-8">
         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? accentColor : '#475569')) }}></div>
         <span className="text-slate-500 text-[11px] font-black uppercase tracking-[0.5em]">{label}</span>
       </div>
       
-      {/* 計時顯示區域：使用精確絕對定位修復錯位 */}
-      <div className={`timer-display-container mb-12 ${isLarge ? 'h-40' : 'h-24'}`}>
-        {/* 背景 Ghost 層：提供數位管底色感覺 */}
-        <div className={`digital-ghost font-mono leading-none ${isLarge ? 'text-[10rem]' : 'text-8xl'} font-black`}>
-          {timeParts.isNegative ? '-' : ''}88:88<span className={isLarge ? 'text-5xl ml-2' : 'text-3xl ml-2'}>.88</span>
+      <div className="relative mb-12 flex items-baseline justify-center">
+        <div className={`font-mono leading-none ${isLarge ? 'text-[10rem]' : 'text-8xl'} digital-ghost`}>
+          {timeParts.isNegative ? '-' : ''}88:88<span className="text-4xl">.88</span>
         </div>
-        
-        {/* 實際數字層：完全對準 Ghost 層 */}
-        <div className="relative flex items-baseline justify-center z-10 w-full">
-          <div 
-            className={`font-mono leading-none ${isLarge ? 'text-[10rem]' : 'text-8xl'} transition-all duration-200 tabular-nums font-black`}
-            style={{ 
-              color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? '#fff' : '#94a3b8')),
-              textShadow: isOvertime ? `0 0 40px #ef444499` : (isGracePeriod ? `0 0 40px #f59e0b99` : (isRunning ? `0 0 30px ${accentColor}55` : 'none'))
-            }}
-          >
-            {timeParts.main}
-          </div>
-          <div className={`font-mono font-bold ml-2 ${isLarge ? 'text-5xl' : 'text-3xl'} tabular-nums transition-opacity duration-300`} style={{ color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? accentColor : '#64748b')), opacity: isRunning || isOvertime || isGracePeriod ? 1 : 0.4 }}>.{timeParts.cents}</div>
+        <div 
+          className={`font-mono leading-none ${isLarge ? 'text-[10rem]' : 'text-8xl'} transition-all duration-200 tabular-nums font-black`}
+          style={{ 
+            color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? '#fff' : '#94a3b8')),
+            textShadow: isOvertime ? `0 0 40px #ef444499` : (isGracePeriod ? `0 0 40px #f59e0b99` : (isRunning ? `0 0 30px ${accentColor}55` : 'none'))
+          }}
+        >
+          {timeParts.main}
         </div>
+        <div className={`font-mono font-bold ml-2 ${isLarge ? 'text-5xl' : 'text-3xl'} tabular-nums transition-opacity duration-300`} style={{ color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? accentColor : '#64748b')), opacity: isRunning || isOvertime || isGracePeriod ? 1 : 0.4 }}>.{timeParts.cents}</div>
 
-        {/* 狀態標籤 */}
         {isOvertime && (
-          <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-red-500 rounded-full shadow-[0_0_20px_#ef4444aa] z-30">
+          <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-red-500 rounded-full shadow-[0_0_20px_#ef4444aa]">
             <AlertTriangle size={14} className="text-white animate-pulse" />
             <span className="text-[10px] font-black text-white uppercase tracking-widest">超時</span>
           </div>
         )}
         {isGracePeriod && (
-          <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-amber-500 rounded-full shadow-[0_0_20px_#f59e0baa] z-30">
+          <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-amber-500 rounded-full shadow-[0_0_20px_#f59e0baa]">
             <ShieldAlert size={14} className="text-white animate-pulse" />
             <span className="text-[10px] font-black text-white uppercase tracking-widest">寬限</span>
           </div>
         )}
       </div>
 
-      {/* 進度條 */}
       <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mb-12 relative border border-white/5">
         <div className={`h-full transition-all duration-300 ease-out`} style={{ width: `${(isOvertime || isGracePeriod) ? 0 : percentage}%`, background: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : `linear-gradient(90deg, ${isCountdown ? 'transparent' : accentColor}, ${isCountdown ? accentColor : 'transparent'})`), boxShadow: isRunning ? `0 0 15px ${isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : accentColor)}aa` : 'none', transform: isCountdown ? 'none' : 'rotate(180deg)' }} />
       </div>
 
-      {/* 控制按鈕 */}
       <div className="flex gap-10">
         <button onClick={onToggle} className="group/btn relative p-8 rounded-[2rem] transition-all active:scale-90 shadow-2xl" style={{ backgroundColor: isOvertime ? '#ef444411' : (isGracePeriod ? '#f59e0b11' : (isRunning ? '#f59e0b11' : `${accentColor}11`)), color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? '#f59e0b' : accentColor)), border: `1px solid ${isOvertime ? '#ef444433' : (isGracePeriod ? '#f59e0b33' : (isRunning ? '#f59e0b22' : `${accentColor}22`))}` }}>
           <div className="absolute inset-0 rounded-[2rem] bg-current opacity-0 group-hover/btn:opacity-5 transition-opacity"></div>
