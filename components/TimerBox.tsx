@@ -1,211 +1,331 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, RotateCcw, Timer as TimerIcon, Activity, Plus, Minus, Check, AlertTriangle, ShieldAlert } from 'lucide-react';
-import { TimerMode } from '../types';
+import React from 'react';
+import { Play, Pause, RotateCcw, Plus, Minus, AlertTriangle, Clock, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { TimerMode, StageSettings } from '../types';
+import { ThemeConfig, STAGE_THEMES } from '../themes';
 
 interface TimerBoxProps {
+  id: string;
   label: string;
+  teamName: string;
   seconds: number;
-  totalDuration: number;
-  overtimeThresholdSeconds: number;
+  durationSeconds: number;
+  usedSeconds: number;
   isRunning: boolean;
   mode: TimerMode;
-  alertPoints: number[];
+  warningSeconds: number;
   foulCount: number;
-  onUpdateFoul: (delta: number) => void;
+  isAffirmative: boolean;
+  settings: StageSettings;
+  hotkeyNum: string; // "1" for Affirmative, "2" for Negative
+  theme?: ThemeConfig;
   onToggle: () => void;
   onReset: () => void;
-  onCompensate: (seconds: number) => void;
-  onToggleMode?: () => void;
-  isLarge?: boolean;
-  accentColor: string;
-  customSound?: string;
-  isMute?: boolean;
-  isLightMode?: boolean;
+  onAdjustTime: (delta: number) => void;
+  onSwitchMode: (m: TimerMode) => void;
+  onUpdateFoul: (delta: number) => void;
+  onUpdateStep?: (step: number) => void;
 }
 
-const playTone = (freq: number, type: OscillatorType, duration: number, volume: number = 0.1) => {
-  try {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    oscillator.start();
-    oscillator.stop(audioCtx.currentTime + duration);
-  } catch (e) {
-    console.error("Audio playback failed", e);
-  }
+const formatTime = (totalSecs: number) => {
+  const isNeg = totalSecs < 0;
+  const abs = Math.abs(totalSecs);
+  const m = Math.floor(abs / 60).toString().padStart(2, '0');
+  const s = Math.floor(abs % 60).toString().padStart(2, '0');
+  const ms = Math.floor((abs % 1) * 10).toString(); // tenth of second
+  return { m, s, ms, isNeg };
 };
 
-const formatTimeParts = (totalSeconds: number) => {
-  const isNegative = totalSeconds < 0 && Math.abs(totalSeconds) >= 0.01;
-  const absSeconds = Math.abs(totalSeconds);
-  const mins = Math.floor(absSeconds / 60);
-  const secs = Math.floor(absSeconds % 60);
-  const cents = Math.floor((absSeconds % 1) * 100);
-  
-  return {
-    isNegative,
-    main: `${isNegative ? '-' : ''}${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`,
-    cents: cents.toString().padStart(2, '0')
-  };
-};
-
-export const TimerBox: React.FC<TimerBoxProps> = ({ 
-  label, seconds, totalDuration, overtimeThresholdSeconds, isRunning, mode, alertPoints, foulCount, onUpdateFoul, onToggle, onReset, onCompensate, onToggleMode, isLarge = true, accentColor, customSound, isMute = false, isLightMode = false
+export const TimerBox: React.FC<TimerBoxProps> = ({
+  label,
+  teamName,
+  seconds,
+  durationSeconds,
+  usedSeconds,
+  isRunning,
+  mode,
+  warningSeconds,
+  foulCount,
+  isAffirmative,
+  settings,
+  hotkeyNum,
+  theme,
+  onToggle,
+  onReset,
+  onAdjustTime,
+  onSwitchMode,
+  onUpdateFoul,
+  onUpdateStep
 }) => {
-  const prevIsRunning = useRef(isRunning);
-  const prevSeconds = useRef(seconds);
-  const triggeredAlerts = useRef<Set<number>>(new Set());
-  const customAudioRef = useRef<HTMLAudioElement | null>(null);
-  
-  const [isCustomCompOpen, setIsCustomCompOpen] = useState(false);
-  const [customCompValue, setCustomCompValue] = useState("5");
-  const [isSubtractMode, setIsSubtractMode] = useState(false);
+  const activeTheme = theme || STAGE_THEMES['black-orange'];
+  const [localStep, setLocalStep] = React.useState(settings.timeStep || 10);
 
-  // 淺色模式下背景更白，邊框更深
-  const glassPanelClass = isLightMode ? 'bg-white/90 border-slate-300 shadow-2xl' : 'bg-slate-900/40 border-white/10 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]';
-  const textColor = isLightMode ? 'text-black' : 'text-white';
-  const subTextColor = isLightMode ? 'text-slate-600' : 'text-slate-400';
-
-  useEffect(() => {
-    if (customSound) {
-      customAudioRef.current = new Audio(customSound);
-    } else {
-      customAudioRef.current = null;
+  React.useEffect(() => {
+    if (settings.timeStep) {
+      setLocalStep(settings.timeStep);
     }
-  }, [customSound]);
+  }, [settings.timeStep]);
 
-  const triggerAlert = () => {
-    if (isMute) return;
-    if (customAudioRef.current) {
-      customAudioRef.current.currentTime = 0;
-      customAudioRef.current.play().catch(console.error);
-    } else {
-      playTone(880, 'sine', 0.4, 0.15);
+  const handleStepChange = (newStep: number) => {
+    const safe = Math.max(1, Math.min(300, newStep));
+    setLocalStep(safe);
+    if (onUpdateStep) {
+      onUpdateStep(safe);
     }
   };
 
-  const isCountdown = mode === 'countdown';
-  const isGracePeriod = isCountdown && seconds < 0 && seconds >= -overtimeThresholdSeconds;
-  const isOvertime = isCountdown && seconds < -overtimeThresholdSeconds;
+  const currentTime = mode === 'countdown' ? seconds : usedSeconds;
+  const { m, s, ms, isNeg } = formatTime(currentTime);
 
-  useEffect(() => {
-    if (!prevIsRunning.current && isRunning && !isMute) {
-      playTone(660, 'sine', 0.05, 0.02); 
-    }
-    prevIsRunning.current = isRunning;
-  }, [isRunning, isMute]);
+  const isOvertime = isNeg && mode === 'countdown';
+  const isNearWarning = !isOvertime && mode === 'countdown' && seconds <= warningSeconds && seconds > 0;
+  
+  // Progress fraction (0 to 1)
+  const progressRatio = durationSeconds > 0 ? Math.min(1, Math.max(0, 1 - (seconds / durationSeconds))) : 0;
 
-  useEffect(() => {
-    if (!isRunning) return;
-    alertPoints.forEach(point => {
-      if (isCountdown) {
-        if (prevSeconds.current > point && seconds <= point && !triggeredAlerts.current.has(point)) {
-          triggerAlert();
-          triggeredAlerts.current.add(point);
-        }
-      } else {
-        if (prevSeconds.current < point && seconds >= point && !triggeredAlerts.current.has(point)) {
-          triggerAlert();
-          triggeredAlerts.current.add(point);
-        }
-      }
-    });
-    if (isCountdown && prevSeconds.current > 0 && seconds <= 0 && !triggeredAlerts.current.has(0)) {
-       triggerAlert();
-       triggeredAlerts.current.add(0);
-    }
-    prevSeconds.current = seconds;
-  }, [seconds, isCountdown, isRunning, alertPoints, isMute]);
+  let digitColorClass = isAffirmative ? activeTheme.timerDigitClass.aff : activeTheme.timerDigitClass.neg;
+  let glowClass = '';
+  if (isOvertime) {
+    digitColorClass = 'text-red-500';
+    glowClass = 'glow-red';
+  } else if (isNearWarning) {
+    digitColorClass = 'text-amber-400';
+    glowClass = 'glow-amber';
+  } else if (isRunning) {
+    glowClass = isAffirmative ? activeTheme.timerDigitClass.affGlow : activeTheme.timerDigitClass.negGlow;
+  }
 
-  useEffect(() => {
-    if (isCountdown) { if (seconds > prevSeconds.current + 1) triggeredAlerts.current.clear(); }
-    else { if (seconds < prevSeconds.current - 1) triggeredAlerts.current.clear(); }
-    prevSeconds.current = seconds;
-  }, [seconds, isCountdown]);
+  const borderClass = isRunning
+    ? isAffirmative
+      ? activeTheme.sideCardBorder.aff + ' shadow-2xl'
+      : activeTheme.sideCardBorder.neg + ' shadow-2xl'
+    : 'border-slate-800/80 hover:border-slate-700/80';
 
-  const percentage = isCountdown 
-    ? Math.max(0, Math.min(100, (seconds / totalDuration) * 100))
-    : Math.min(100, (seconds / totalDuration) * 100);
-
-  const timeParts = formatTimeParts(seconds);
+  const cardBgStyle = isRunning
+    ? isAffirmative
+      ? 'bg-gradient-to-b from-orange-950/20 via-slate-900/90 to-[#0A0D16]'
+      : 'bg-gradient-to-b from-amber-950/20 via-slate-900/90 to-[#0A0D16]'
+    : activeTheme.cardBaseClass;
 
   return (
-    <div 
-      className={`flex flex-col items-center ${isLarge ? 'p-12' : 'p-8'} glass-panel rounded-[3.5rem] transition-all duration-700 relative overflow-hidden group ${isRunning ? 'timer-active' : ''} ${glassPanelClass}`}
-      style={{ 
-        '--accent-glow': isOvertime ? '#ef444466' : (isGracePeriod ? '#f59e0b44' : `${accentColor}33`),
-        borderColor: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? accentColor : (isLightMode ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.08)'))),
-        transform: isRunning ? 'scale(1.02)' : 'scale(1)'
-      } as React.CSSProperties}
+    <div
+      className={`relative flex-1 min-w-[320px] max-w-[760px] rounded-3xl border-2 ${borderClass} ${cardBgStyle} p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 stage-box-shadow backdrop-blur-xl select-none`}
     >
-      <div className="absolute top-8 left-10 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 max-w-[220px]">
-        <div className="flex gap-2">
-          <button onClick={() => onCompensate(10)} className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/30 border border-emerald-500/20 text-[10px] font-black text-emerald-600 transition-all flex items-center gap-1"><Plus size={10} /> 10秒</button>
-          <button onClick={() => onCompensate(-10)} className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/30 border border-red-500/20 text-[10px] font-black text-red-600 transition-all flex items-center gap-1"><Minus size={10} /> 10秒</button>
+      {/* 顶部阵营与状态栏 */}
+      <div className="flex items-center justify-between pb-4 border-b border-slate-800/80 gap-3">
+        <div className="flex items-center gap-3">
+          <span
+            className={`px-3 py-1 rounded-md text-xs font-bold tracking-wider ${
+              isAffirmative ? activeTheme.sideBadge.aff : activeTheme.sideBadge.neg
+            }`}
+          >
+            {isAffirmative ? '正方' : '反方'}
+          </span>
+          <span className="text-sm font-semibold text-slate-300 truncate max-w-[160px] sm:max-w-[220px]">
+            {teamName}
+          </span>
         </div>
-        <button onClick={() => setIsCustomCompOpen(!isCustomCompOpen)} className={`px-3 py-1.5 rounded-lg border transition-all flex items-center justify-center gap-1 text-[10px] font-black ${isCustomCompOpen ? 'bg-slate-900 text-white' : (isLightMode ? 'bg-slate-200 border-slate-300 text-slate-700' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white')}`}>手動調整</button>
+
+        <div className="flex items-center gap-2">
+          {isRunning ? (
+            <span
+              className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md ${
+                isAffirmative ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-500 text-white animate-pulse'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-white"></span>
+              发言中
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-md">
+              就绪
+            </span>
+          )}
+
+          <button
+            onClick={() => onSwitchMode(mode === 'countdown' ? 'stopwatch' : 'countdown')}
+            className="text-[11px] text-slate-400 hover:text-slate-200 bg-slate-800/60 hover:bg-slate-800 px-2 py-1 rounded border border-slate-700/60 transition-colors"
+            title="切换计时模式"
+          >
+            {mode === 'countdown' ? '倒计时' : '正计时'}
+          </button>
+        </div>
       </div>
 
-      <div className="absolute bottom-8 right-10 flex flex-col items-center gap-1.5 group/foul transition-all">
-        <span className={`text-[9px] font-black uppercase tracking-[0.3em] transition-all duration-300 ${foulCount > 0 ? 'text-red-500/80' : 'text-slate-400 group-hover/foul:text-slate-600'}`}>犯規數</span>
-        <div className={`flex items-center border p-1.5 rounded-2xl shadow-xl backdrop-blur-md transition-all ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-white/5 border-white/10'}`}>
-          <button onClick={() => onUpdateFoul(-1)} className="p-1.5 hover:bg-red-500/20 text-slate-500 hover:text-red-500 rounded-lg transition-all active:scale-90"><Minus size={14}/></button>
-          <span className={`px-2.5 text-center text-sm font-black transition-all tabular-nums ${foulCount > 0 ? 'text-red-500 scale-110' : subTextColor}`}>{foulCount}</span>
-          <button onClick={() => onUpdateFoul(1)} className="p-1.5 hover:bg-emerald-500/20 text-slate-500 hover:text-emerald-500 rounded-lg transition-all active:scale-90"><Plus size={14}/></button>
+      {/* 辩手标签与预警状态 */}
+      <div className="mt-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            {label}
+          </h3>
+          <p className="text-xs text-slate-400 mt-1">
+            总时长 {Math.floor(durationSeconds / 60)}分{durationSeconds % 60 > 0 ? `${durationSeconds % 60}秒` : ''} · 剩{warningSeconds}秒预警
+          </p>
         </div>
-      </div>
 
-      <button onClick={(e) => { e.stopPropagation(); onToggleMode?.(); }} className={`absolute top-8 right-10 flex items-center gap-2.5 opacity-80 hover:opacity-100 hover:scale-105 transition-all px-4 py-2 rounded-xl border z-20 shadow-xl ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-white/10 border-white/10'}`}>
-        {isCountdown ? <TimerIcon size={14} className="text-emerald-600"/> : <Activity size={14} className="text-blue-600 animate-pulse"/>}
-        <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${textColor}`}>{isCountdown ? '倒計時' : '秒錶'}</span>
-      </button>
+        {isOvertime && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 text-white text-xs font-bold rounded-lg animate-bounce shadow-lg shadow-red-500/30">
+            <AlertTriangle size={15} />
+            已超时
+          </div>
+        )}
 
-      {/* 辯位標籤：在淺色模式下使用深色背景增強對比度 */}
-      <div className="flex flex-col items-center mb-10 w-full">
-        <div className={`px-10 py-3 rounded-2xl shadow-lg border transition-all flex items-center justify-center gap-4 ${isLightMode ? 'bg-black border-black scale-110 shadow-black/20' : 'bg-white/10 border-white/10'}`}>
-          <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? accentColor : '#94a3b8')) }}></div>
-          <span className="text-4xl font-black uppercase tracking-[0.25em] text-white">{label}</span>
-        </div>
-      </div>
-      
-      <div className="relative mb-12 flex items-baseline justify-center">
-        <div className={`font-mono leading-none ${isLarge ? 'text-[10rem]' : 'text-8xl'} digital-ghost ${isLightMode ? 'opacity-[0.05]' : 'opacity-[0.02]'}`}>
-          {timeParts.isNegative ? '-' : ''}88:88<span className="text-4xl">.88</span>
-        </div>
-        <div 
-          className={`font-mono leading-none ${isLarge ? 'text-[10rem]' : 'text-8xl'} transition-all duration-200 tabular-nums font-black`}
-          style={{ 
-            color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isLightMode ? '#000000' : (isRunning ? '#ffffff' : '#475569'))),
-            textShadow: isOvertime ? `0 0 40px #ef444499` : (isGracePeriod ? `0 0 40px #f59e0b99` : (isRunning && !isLightMode ? `0 0 30px ${accentColor}33` : 'none'))
-          }}
-        >
-          {timeParts.main}
-        </div>
-        <div className={`font-mono font-bold ml-2 ${isLarge ? 'text-5xl' : 'text-3xl'} tabular-nums transition-opacity duration-300`} style={{ color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isLightMode ? '#334155' : (isRunning ? accentColor : '#475569'))), opacity: isRunning || isOvertime || isGracePeriod ? 1 : 0.4 }}>.{timeParts.cents}</div>
-
-        {(isOvertime || isGracePeriod) && (
-          <div className={`absolute -bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-2 px-6 py-2 rounded-full shadow-2xl ${isOvertime ? 'bg-red-600' : 'bg-amber-600'} animate-bounce`}>
-            {isOvertime ? <AlertTriangle size={16} className="text-white" /> : <ShieldAlert size={16} className="text-white" />}
-            <span className="text-xs font-black text-white uppercase tracking-widest">{isOvertime ? '超時' : '寬限期'}</span>
+        {isNearWarning && !isOvertime && (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold rounded-lg animate-pulse">
+            <AlertTriangle size={14} />
+            准备结语
           </div>
         )}
       </div>
 
-      <div className={`w-full h-3 rounded-full overflow-hidden mb-12 relative border ${isLightMode ? 'bg-slate-200 border-slate-300' : 'bg-white/5 border-white/5'}`}>
-        <div className={`h-full transition-all duration-300 ease-out`} style={{ width: `${(isOvertime || isGracePeriod) ? 0 : percentage}%`, background: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : `linear-gradient(90deg, ${isCountdown ? 'transparent' : accentColor}, ${isCountdown ? accentColor : 'transparent'})`), boxShadow: isRunning ? `0 0 15px ${isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : accentColor)}aa` : 'none', transform: isCountdown ? 'none' : 'rotate(180deg)' }} />
+      {/* 核心大屏数字显示区域 */}
+      <div
+        onClick={onToggle}
+        className="my-6 py-6 sm:py-8 bg-black/40 rounded-2xl border border-slate-800/60 flex flex-col items-center justify-center cursor-pointer group hover:border-slate-700 transition-all relative overflow-hidden"
+      >
+        {/* 顶部进度条 */}
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-slate-800">
+          <div
+            className={`h-full transition-all duration-300 ${
+              isAffirmative ? activeTheme.sideProgressBar.aff : activeTheme.sideProgressBar.neg
+            }`}
+            style={{ width: `${progressRatio * 100}%` }}
+          />
+        </div>
+
+        <div className={`digit-mono flex items-baseline justify-center transition-all ${digitColorClass} ${glowClass}`}>
+          {isOvertime && <span className="text-4xl sm:text-5xl font-black mr-2 text-red-500">+</span>}
+          <span className="text-6xl sm:text-8xl lg:text-9xl font-black leading-none tracking-tight">
+            {m}:{s}
+          </span>
+          <span className="text-2xl sm:text-3xl lg:text-4xl font-bold opacity-40 ml-2">
+            .{ms}
+          </span>
+        </div>
+
+        <div className="mt-3 flex items-center gap-4 text-xs text-slate-400">
+          <span className="flex items-center gap-1">
+            <Clock size={12} className="text-slate-500" />
+            已用时: <span className="text-slate-200 font-mono font-semibold">{formatTime(usedSeconds).m}:{formatTime(usedSeconds).s}</span>
+          </span>
+          <span>·</span>
+          <span className="text-slate-400 group-hover:text-slate-200 transition-colors">
+            点击卡片或按 [{hotkeyNum}] 切换
+          </span>
+        </div>
       </div>
 
-      <div className="flex gap-10">
-        <button onClick={onToggle} className="group/btn relative p-8 rounded-[2rem] transition-all active:scale-90 shadow-2xl" style={{ backgroundColor: isOvertime ? '#ef444422' : (isGracePeriod ? '#f59e0b22' : (isRunning ? '#f59e0b22' : `${accentColor}22`)), color: isOvertime ? '#ef4444' : (isGracePeriod ? '#f59e0b' : (isRunning ? '#f59e0b' : (isLightMode ? '#000' : accentColor))), border: `1px solid ${isOvertime ? '#ef444455' : (isGracePeriod ? '#f59e0b55' : (isRunning ? '#f59e0b44' : `${accentColor}44`))}` }}>
-          {isRunning ? <Pause size={48} fill="currentColor" /> : <Play size={48} fill="currentColor" />}
-        </button>
-        <button onClick={() => { triggeredAlerts.current.clear(); onReset(); }} className={`group/reset p-8 rounded-[2rem] border transition-all active:scale-90 ${isLightMode ? 'bg-slate-200 border-slate-300 text-slate-600 hover:text-black hover:bg-slate-300' : 'bg-white/5 border-white/5 text-slate-500 hover:text-white'}`}><RotateCcw size={48} className="group-hover/reset:rotate-[-45deg] transition-transform" /></button>
+      {/* 控制操作区：补扣时、主控制启停、复位、犯规记录 */}
+      <div className="space-y-4">
+        {/* 时间微调与犯规 */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-slate-400 font-medium">调整:</span>
+            <button
+              onClick={() => onAdjustTime(localStep)}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/80 rounded-lg text-slate-200 font-semibold active:scale-95 transition-all"
+              title={`补时 ${localStep} 秒`}
+            >
+              +{localStep}s
+            </button>
+            <button
+              onClick={() => onAdjustTime(-localStep)}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/80 rounded-lg text-slate-200 font-semibold active:scale-95 transition-all"
+              title={`扣时 ${localStep} 秒`}
+            >
+              -{localStep}s
+            </button>
+
+            {/* 自定义步长数字输入框 */}
+            <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-700/80 rounded-lg px-2 py-1" title="点击直接修改单次调整秒数">
+              <span className="text-[10px] text-slate-500">步长:</span>
+              <input
+                type="number"
+                min="1"
+                max="300"
+                value={localStep}
+                onChange={e => handleStepChange(parseInt(e.target.value) || 1)}
+                className="w-8 text-center font-mono font-bold text-amber-300 text-xs bg-transparent focus:outline-none"
+              />
+              <span className="text-[10px] text-slate-400">秒</span>
+            </div>
+
+            {/* 常用秒数快速点选 */}
+            <div className="hidden sm:flex items-center gap-1">
+              {[5, 10, 15, 30].map(s => (
+                <button
+                  key={s}
+                  onClick={() => handleStepChange(s)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold transition-colors ${
+                    localStep === s 
+                      ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50' 
+                      : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/50'
+                  }`}
+                  title={`设为 ${s} 秒`}
+                >
+                  {s}s
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 犯规计数 */}
+          <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60">
+            <span className="text-slate-400 font-medium flex items-center gap-1">
+              <ShieldAlert size={13} className="text-amber-400" />
+              犯规:
+            </span>
+            <button
+              onClick={() => onUpdateFoul(-1)}
+              disabled={foulCount <= 0}
+              className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-30 text-slate-300 font-bold"
+            >
+              -
+            </button>
+            <span className="text-sm font-mono font-bold text-white w-4 text-center">
+              {foulCount}
+            </span>
+            <button
+              onClick={() => onUpdateFoul(1)}
+              className="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {/* 主操控按钮：START/PAUSE 与 RESET */}
+        <div className="flex items-stretch gap-3">
+          <button
+            onClick={onToggle}
+            className={`flex-1 py-4 sm:py-5 rounded-2xl font-black text-lg tracking-wider text-white flex items-center justify-center gap-2.5 transition-all shadow-lg active:scale-98 ${
+              isRunning
+                ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30'
+                : isAffirmative
+                ? activeTheme.sideStartBtn.aff
+                : activeTheme.sideStartBtn.neg
+            }`}
+          >
+            {isRunning ? (
+              <>
+                <Pause size={22} fill="currentColor" />
+                暂停发言
+              </>
+            ) : (
+              <>
+                <Play size={22} fill="currentColor" />
+                开始发言 [{hotkeyNum}]
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={onReset}
+            className="px-5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white rounded-2xl flex items-center justify-center transition-all active:scale-95"
+            title="复位本方时间"
+          >
+            <RotateCcw size={20} />
+          </button>
+        </div>
       </div>
     </div>
   );

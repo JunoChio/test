@@ -1,5 +1,6 @@
 {
-  "name": "SuperDebater Pro - 專業辯論計時器",
-  "description": "一款專為辯論賽事設計的專業計時系統，支持自定義環節、多計時器配置以及 AI 辯題生成功能。",
-  "requestFramePermissions": []
+  "name": "Debate Stage Pro - 專業辯論大屏計時系統",
+  "description": "專為辯論賽事大屏投影打造的專業級計時系統，支持高對比度舞台視效、自定義賽制環節、擬真拍鈴音效、辯題隊伍自定義與快捷鍵極速操控。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
 }

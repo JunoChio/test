@@ -1,376 +1,784 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Plus, Trash2, Palette, Type as TypeIcon, Layout, Smile, Timer as TimerIcon, Activity, Keyboard, Image as ImageIcon, Volume2, Bell, BellOff, UserPlus, UserMinus, Eye, EyeOff, Check, Image as LucideImage, Trash, Pipette } from 'lucide-react';
-import { DebatePhase, PhaseType, TimerInstance, AppearanceConfig, ThemeType, HotkeyConfig, TimerMode } from '../types';
+import React, { useState, useEffect } from 'react';
+import { 
+  X, Plus, Trash2, Clock, Bell, Settings2, Trophy, 
+  ArrowUp, ArrowDown, Volume2, Save, Undo2, Layers, Check, FileCode, Palette, Sparkles 
+} from 'lucide-react';
+import { DebatePhase, PhaseType, MatchInfo, StageSettings } from '../types';
+import { TOURNAMENT_TEMPLATES, DEFAULT_MATCH_INFO } from '../templates';
+import { bellSynthesizer } from '../audioBell';
+import { JsonTransferModal } from './JsonTransferModal';
+import { ThemeId, STAGE_THEMES } from '../themes';
 
 interface ConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (phases: DebatePhase[], appearance: AppearanceConfig) => void;
-  initialPhases: DebatePhase[];
-  initialAppearance: AppearanceConfig;
+  phases: DebatePhase[];
+  matchInfo: MatchInfo;
+  settings: StageSettings;
+  currentThemeId: ThemeId;
+  onSelectTheme: (themeId: ThemeId) => void;
+  onSave: (newPhases: DebatePhase[], newMatchInfo: MatchInfo, newSettings: StageSettings) => void;
 }
 
-const THEMES: { id: ThemeType; label: string; color: string; isLight?: boolean }[] = [
-  { id: 'minimalist-light', label: '極簡純白', color: '#f8fafc', isLight: true },
-  { id: 'ivory', label: '象牙雅致', color: '#fdfbf7', isLight: true },
-  { id: 'nordic-frost', label: '北歐冰霜', color: '#e2e8f0', isLight: true },
-  { id: 'midnight', label: '午夜極黑', color: '#020617' },
-  { id: 'aurora', label: '極光深空', color: '#1e1b4b' },
-  { id: 'ocean', label: '深海領域', color: '#0c4a6e' },
-  { id: 'sunset', label: '落日餘暉', color: '#451a03' },
-  { id: 'custom', label: '深度自定義', color: '#334155' },
-];
-
-export const ConfigModal: React.FC<ConfigModalProps> = ({ isOpen, onClose, onSave, initialPhases, initialAppearance }) => {
-  const [phases, setPhases] = useState<DebatePhase[]>(initialPhases);
-  const [appearance, setAppearance] = useState<AppearanceConfig>(initialAppearance);
-  const [activeTab, setActiveTab] = useState<'appearance' | 'phases' | 'hotkeys'>('appearance');
+export const ConfigModal: React.FC<ConfigModalProps> = ({
+  isOpen,
+  onClose,
+  phases: initialPhases,
+  matchInfo: initialMatchInfo,
+  settings: initialSettings,
+  currentThemeId,
+  onSelectTheme,
+  onSave
+}) => {
+  const [activeTab, setActiveTab] = useState<'phases' | 'match' | 'theme' | 'settings'>('phases');
   
-  const [addingAlertFor, setAddingAlertFor] = useState<string | null>(null);
-  const [tempAlertValue, setTempAlertValue] = useState<string>("60");
+  // 确保初始状态即包含有效数据，防止空白
+  const [phases, setPhases] = useState<DebatePhase[]>(() => {
+    if (initialPhases && Array.isArray(initialPhases) && initialPhases.length > 0) {
+      return JSON.parse(JSON.stringify(initialPhases));
+    }
+    return JSON.parse(JSON.stringify(TOURNAMENT_TEMPLATES['标准立论与自由辩 (通用推荐)']));
+  });
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const soundInputRef = useRef<HTMLInputElement>(null);
+  const [matchInfo, setMatchInfo] = useState<MatchInfo>(() => {
+    return initialMatchInfo && initialMatchInfo.affirmativeTeam
+      ? JSON.parse(JSON.stringify(initialMatchInfo))
+      : DEFAULT_MATCH_INFO;
+  });
 
+  const [settings, setSettings] = useState<StageSettings>(() => {
+    return initialSettings || {
+      isMute: false,
+      volume: 0.8,
+      timeStep: 10,
+      isChessClockMode: true,
+      autoNextPhaseOnFinish: false,
+      bellStyle: 'brass'
+    };
+  });
+
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+
+  // 仅在弹窗从关闭变为打开时同步初始数据，避免计时器高频刷新的干扰
   useEffect(() => {
     if (isOpen) {
-      setPhases([...initialPhases]);
-      setAppearance({ ...initialAppearance });
-      if (initialPhases.length === 0) { setActiveTab('phases'); }
+      if (initialPhases && Array.isArray(initialPhases) && initialPhases.length > 0) {
+        setPhases(JSON.parse(JSON.stringify(initialPhases)));
+      } else {
+        setPhases(JSON.parse(JSON.stringify(TOURNAMENT_TEMPLATES['标准立论与自由辩 (通用推荐)'])));
+      }
+
+      if (initialMatchInfo && initialMatchInfo.affirmativeTeam) {
+        setMatchInfo(JSON.parse(JSON.stringify(initialMatchInfo)));
+      } else {
+        setMatchInfo(DEFAULT_MATCH_INFO);
+      }
+
+      if (initialSettings) {
+        setSettings(JSON.parse(JSON.stringify(initialSettings)));
+      }
+
+      setSelectedTemplate('');
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const playTestSound = () => {
-    if (appearance.customSound) {
-      const audio = new Audio(appearance.customSound);
-      audio.play().catch(console.error);
-    } else {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1320, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.4);
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAppearance(prev => ({ ...prev, backgroundImage: reader.result as string, theme: 'custom' }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSoundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAppearance(prev => ({ ...prev, customSound: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const createDefaultTimer = (label: string = '發言方'): TimerInstance => ({
-    id: Math.random().toString(36).substr(2, 9),
-    label,
-    durationSeconds: 180,
-    remainingSeconds: 180,
-    isRunning: false,
-    mode: 'countdown',
-    alertPoints: [30, 0],
-    overtimeThresholdSeconds: 15,
-    foulCount: 0
-  });
-
-  const addPhase = () => {
+  // 添加新环节
+  const handleAddPhase = () => {
+    const newPhaseId = `phase-${Date.now()}`;
     const newPhase: DebatePhase = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: '新賽事環節',
+      id: newPhaseId,
+      name: `第 ${phases.length + 1} 环节：新辩论阶段`,
       type: PhaseType.STANDARD,
-      timers: [ createDefaultTimer('正方發言'), createDefaultTimer('反方發言') ]
+      chessMode: false,
+      timers: [
+        {
+          id: `t-${newPhaseId}-aff`,
+          label: '正方辩手',
+          durationSeconds: 180,
+          remainingSeconds: 180,
+          usedSeconds: 0,
+          isRunning: false,
+          mode: 'countdown',
+          warningSeconds: 30,
+          foulCount: 0
+        },
+        {
+          id: `t-${newPhaseId}-neg`,
+          label: '反方辩手',
+          durationSeconds: 180,
+          remainingSeconds: 180,
+          usedSeconds: 0,
+          isRunning: false,
+          mode: 'countdown',
+          warningSeconds: 30,
+          foulCount: 0
+        }
+      ]
     };
     setPhases(prev => [...prev, newPhase]);
   };
 
-  const addTimerToPhase = (phaseId: string) => {
-    setPhases(prevPhases => prevPhases.map(p => {
-      if (p.id !== phaseId) return p;
-      const newTimer = createDefaultTimer(`發言方 ${p.timers.length + 1}`);
-      if (p.type === PhaseType.FREE) {
-        newTimer.mode = 'stopwatch';
-        newTimer.remainingSeconds = 0;
-      }
-      return { ...p, timers: [...p.timers, newTimer] };
-    }));
+  // 删除环节
+  const handleDeletePhase = (index: number) => {
+    if (phases.length <= 1) {
+      alert('至少保留一个辩论环节');
+      return;
+    }
+    setPhases(prev => prev.filter((_, i) => i !== index));
   };
 
-  const removeTimerFromPhase = (phaseId: string, timerId: string) => {
-    setPhases(prevPhases => prevPhases.map(p => {
-      if (p.id !== phaseId) return p;
-      if (p.timers.length <= 1) return p;
-      return { ...p, timers: p.timers.filter(t => t.id !== timerId) };
-    }));
+  // 环节上移/下移
+  const handleMovePhase = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= phases.length) return;
+    const newArr = [...phases];
+    const temp = newArr[index];
+    newArr[index] = newArr[targetIndex];
+    newArr[targetIndex] = temp;
+    setPhases(newArr);
   };
 
-  const updatePhaseType = (phaseId: string, newType: PhaseType) => {
-    setPhases(prevPhases => prevPhases.map(p => {
-      if (p.id !== phaseId) return p;
-      const newMode: TimerMode = newType === PhaseType.FREE ? 'stopwatch' : 'countdown';
-      return {
-        ...p,
-        type: newType,
-        timers: p.timers.map(t => ({
-          ...t,
-          mode: newMode,
-          remainingSeconds: newMode === 'countdown' ? t.durationSeconds : 0,
-          foulCount: 0
-        }))
-      };
-    }));
+  // 套用预设赛制模板
+  const handleApplyTemplate = (tmplKey: string) => {
+    if (TOURNAMENT_TEMPLATES[tmplKey]) {
+      const cloned = JSON.parse(JSON.stringify(TOURNAMENT_TEMPLATES[tmplKey]));
+      setPhases(cloned);
+      setSelectedTemplate(tmplKey);
+    }
   };
 
-  const updateTimer = (phaseId: string, timerId: string, updates: Partial<TimerInstance>) => {
-    setPhases(prevPhases => prevPhases.map(p => {
-      if (p.id !== phaseId) return p;
-      return { ...p, timers: p.timers.map(t => t.id === timerId ? { ...t, ...updates } : t) };
-    }));
-  };
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
 
-  const toggleAlertPoint = (phaseId: string, timerId: string, point: number) => {
-    setPhases(prevPhases => prevPhases.map(p => {
-      if (p.id !== phaseId) return p;
-      return {
-        ...p,
-        timers: p.timers.map(t => {
-          if (t.id !== timerId) return t;
-          const points = t.alertPoints.includes(point) 
-            ? t.alertPoints.filter(p => p !== point) 
-            : [...t.alertPoints, point].sort((a, b) => b - a);
-          return { ...t, alertPoints: points };
-        })
-      };
-    }));
-  };
-
-  const handleConfirmAddAlert = (phaseId: string, timerId: string) => {
-    const num = parseInt(tempAlertValue);
-    if (!isNaN(num)) { toggleAlertPoint(phaseId, timerId, num); }
-    setAddingAlertFor(null);
-    setTempAlertValue("60");
-  };
-
-  const updateHotkey = (key: keyof HotkeyConfig, value: string) => {
-    setAppearance(prev => ({ ...prev, hotkeys: { ...prev.hotkeys, [key]: value } }));
+  // 保存并退出
+  const handleSave = () => {
+    onSave(phases, matchInfo, settings);
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-300">
-      <div className="w-full max-w-5xl max-h-[90vh] glass-panel rounded-[3rem] flex flex-col shadow-2xl overflow-visible border border-white/10 bg-slate-900/80">
-        <div className="flex items-center justify-between p-10 border-b border-white/5">
-          <h2 className="text-3xl font-black flex items-center gap-4 text-white uppercase tracking-tighter italic">
-            <div className="w-4 h-10 rounded-full" style={{ backgroundColor: appearance.accentColor }}></div>
-            配置中心
-          </h2>
-          <div className="flex bg-slate-800 p-1.5 rounded-2xl shadow-inner">
-             <button onClick={() => setActiveTab('appearance')} className={`px-6 py-3 rounded-xl text-xs font-black transition-all uppercase tracking-widest ${activeTab === 'appearance' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>外觀與主題</button>
-             <button onClick={() => setActiveTab('phases')} className={`px-6 py-3 rounded-xl text-xs font-black transition-all uppercase tracking-widest ${activeTab === 'phases' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>環節與鳴鈴</button>
-             <button onClick={() => setActiveTab('hotkeys')} className={`px-6 py-3 rounded-xl text-xs font-black transition-all uppercase tracking-widest ${activeTab === 'hotkeys' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>快捷鍵</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md">
+      <div className="w-full max-w-5xl max-h-[92vh] bg-[#0B1120] border border-slate-700/80 rounded-3xl flex flex-col shadow-2xl overflow-hidden">
+        
+        {/* 弹窗头部 */}
+        <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <Settings2 size={22} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">赛制与赛事系统设置</h2>
+              <p className="text-xs text-slate-400">自由增减赛程环节、设置辩手发言时长与对阵信息</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsJsonModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 rounded-xl transition-colors"
+              title="导入或导出 JSON 赛制配置包"
+            >
+              <FileCode size={15} className="text-blue-400" />
+              <span>导入 / 导出 JSON</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
+            >
+              <X size={20} />
+            </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-10 space-y-12">
-          {activeTab === 'appearance' && (
-            <div className="space-y-10 animate-in slide-in-from-left-4 duration-300">
-              <div className="grid grid-cols-2 gap-8">
-                <section>
-                  <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">賽事名稱</label>
-                  <input value={appearance.appTitle} onChange={(e) => setAppearance(prev => ({...prev, appTitle: e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xl font-bold outline-none text-white focus:border-emerald-500/50 transition-colors"/>
-                </section>
-                <section>
-                  <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">顯示 Emoji</label>
-                  <input value={appearance.iconText} onChange={(e) => setAppearance(prev => ({...prev, iconText: e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xl font-bold outline-none text-white text-center" maxLength={2}/>
-                </section>
-              </div>
+        {/* 标签栏 */}
+        <div className="px-6 pt-3 border-b border-slate-800 bg-slate-900/30 flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('phases')}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-bold text-sm transition-all ${
+              activeTab === 'phases'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Layers size={16} />
+            环节流程编排 ({phases.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('match')}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-bold text-sm transition-all ${
+              activeTab === 'match'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Trophy size={16} />
+            辩题与对阵队伍
+          </button>
+          <button
+            onClick={() => setActiveTab('theme')}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-bold text-sm transition-all ${
+              activeTab === 'theme'
+                ? 'border-orange-500 text-orange-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Palette size={16} />
+            视觉主题配色
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-bold text-sm transition-all ${
+              activeTab === 'settings'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Volume2 size={16} />
+            音效与操作偏好
+          </button>
+        </div>
 
-              <section>
-                <label className="text-[10px] font-black text-slate-500 mb-6 block uppercase tracking-[0.3em]">主題氛圍</label>
-                <div className="grid grid-cols-4 gap-4 mb-8">
-                  {THEMES.map(t => (
-                    <button key={t.id} onClick={() => setAppearance(prev => ({...prev, theme: t.id}))} className={`p-4 rounded-2xl border-2 transition-all group ${appearance.theme === t.id ? 'border-emerald-500 bg-emerald-500/10' : 'border-transparent bg-white/5 opacity-60 hover:opacity-100'}`}>
-                      <div className="w-full h-16 rounded-xl mb-3 shadow-lg flex items-center justify-center overflow-hidden" style={{ backgroundColor: t.id === 'custom' ? (appearance.customBgColor || '#334155') : t.color }}>
-                        {t.isLight && <div className="text-[10px] font-black text-slate-400">淺色模式</div>}
-                        {t.id === 'custom' && <Pipette size={16} className="text-white opacity-40"/>}
-                      </div>
-                      <span className={`text-[11px] font-black uppercase text-center block ${appearance.theme === t.id ? 'text-emerald-400' : 'text-slate-300'}`}>{t.label}</span>
+        {/* 内容主体 */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          
+          {/* TAB 1: 环节流程编排 */}
+          {activeTab === 'phases' && (
+            <div className="space-y-6">
+              {/* 预设赛制快捷载入 */}
+              <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+                <div className="text-xs font-semibold text-slate-400 mb-2">快速载入主流赛制模板：</div>
+                <div className="flex flex-wrap gap-2">
+                  {Object.keys(TOURNAMENT_TEMPLATES).map(tmplName => (
+                    <button
+                      key={tmplName}
+                      onClick={() => handleApplyTemplate(tmplName)}
+                      className={`text-xs px-3.5 py-1.5 rounded-lg border font-medium transition-all ${
+                        selectedTemplate === tmplName
+                          ? 'bg-blue-600 text-white border-blue-500'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {tmplName}
                     </button>
                   ))}
                 </div>
-
-                {/* 深度色彩自定義區塊 */}
-                <div className={`p-8 rounded-[2rem] bg-white/5 border border-white/10 grid grid-cols-2 gap-8 transition-all duration-500 ${appearance.theme === 'custom' ? 'opacity-100 translate-y-0 scale-100' : 'opacity-20 pointer-events-none scale-95 origin-top'}`}>
-                   <div>
-                      <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">背景色 (HEX/RGB)</label>
-                      <div className="flex items-center gap-4">
-                        <div className="relative flex-1">
-                           <input type="text" value={appearance.customBgColor} onChange={(e) => setAppearance(prev => ({...prev, customBgColor: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 font-mono text-sm text-white outline-none focus:border-emerald-500/50 uppercase" placeholder="#0F172A"/>
-                           <input type="color" value={appearance.customBgColor || '#0f172a'} onChange={(e) => setAppearance(prev => ({...prev, customBgColor: e.target.value}))} className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md bg-transparent border-none cursor-pointer overflow-hidden"/>
-                        </div>
-                      </div>
-                   </div>
-                   <div>
-                      <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">主題強調色 (HEX/RGB)</label>
-                      <div className="flex items-center gap-4">
-                        <div className="relative flex-1">
-                           <input type="text" value={appearance.accentColor} onChange={(e) => setAppearance(prev => ({...prev, accentColor: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 font-mono text-sm text-white outline-none focus:border-emerald-500/50 uppercase" placeholder="#10B981"/>
-                           <input type="color" value={appearance.accentColor} onChange={(e) => setAppearance(prev => ({...prev, accentColor: e.target.value}))} className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md bg-transparent border-none cursor-pointer overflow-hidden"/>
-                        </div>
-                      </div>
-                   </div>
-                </div>
-              </section>
-
-              <div className="grid grid-cols-2 gap-8">
-                <section>
-                  <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">自定義背景圖片</label>
-                  <div className="flex items-center gap-4">
-                    <button onClick={() => fileInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-3 py-6 rounded-2xl bg-white/5 border border-dashed border-white/20 hover:bg-white/10 transition-all text-slate-400 hover:text-white">
-                      <LucideImage size={20} />
-                      <span className="text-xs font-black uppercase tracking-widest">{appearance.backgroundImage ? '更換圖片' : '上傳背景圖'}</span>
-                    </button>
-                    {appearance.backgroundImage && (
-                      <button onClick={() => setAppearance(prev => ({...prev, backgroundImage: undefined}))} className="p-6 rounded-2xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20" title="移除背景"><Trash size={20}/></button>
-                    )}
-                  </div>
-                  <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
-                </section>
-
-                <section>
-                  <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">鳴鈴音效</label>
-                  <div className="flex items-center gap-4">
-                    <button onClick={() => soundInputRef.current?.click()} className="flex-1 flex items-center justify-center gap-3 py-6 rounded-2xl bg-white/5 border border-dashed border-white/20 hover:bg-white/10 transition-all text-slate-400 hover:text-white">
-                      <Volume2 size={20} />
-                      <span className="text-xs font-black uppercase tracking-widest">上傳音效</span>
-                    </button>
-                    <button onClick={playTestSound} className="p-6 rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20"><Bell size={20}/></button>
-                  </div>
-                  <input type="file" ref={soundInputRef} className="hidden" accept="audio/*" onChange={handleSoundUpload} />
-                </section>
               </div>
 
-              <section>
-                <label className="text-[10px] font-black text-slate-500 mb-4 block uppercase tracking-[0.3em]">顯示與功能</label>
-                <div className="flex flex-col gap-3">
-                  <button onClick={() => setAppearance(prev => ({...prev, showInfoBar: !prev.showInfoBar}))} className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl font-black text-xs uppercase transition-all ${appearance.showInfoBar ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-white/5 text-slate-500 border border-white/5'}`}>
-                    <span className="flex items-center gap-3">{appearance.showInfoBar ? <Eye size={16} /> : <EyeOff size={16} />} 顯示頂部實時資訊</span>
-                    <div className={`w-10 h-5 rounded-full relative transition-all ${appearance.showInfoBar ? 'bg-emerald-500' : 'bg-slate-700'}`}>
-                      <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${appearance.showInfoBar ? 'right-1' : 'left-1'}`}></div>
-                    </div>
-                  </button>
-                </div>
-              </section>
-            </div>
-          )}
-
-          {activeTab === 'phases' && (
-            <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
-              {phases.map((phase) => (
-                <div key={phase.id} className="p-8 bg-white/5 rounded-[2.5rem] border border-white/5 relative group hover:border-white/10 transition-all">
-                  <div className="flex gap-4 mb-8">
-                    <input value={phase.name} onChange={(e) => setPhases(prev => prev.map(p => p.id === phase.id ? {...p, name: e.target.value} : p))} className="flex-1 bg-transparent border-b border-white/10 text-xl font-black outline-none text-white uppercase focus:border-emerald-500/50 transition-colors"/>
-                    <div className="flex gap-2">
-                       <select value={phase.type} onChange={(e) => updatePhaseType(phase.id, e.target.value as PhaseType)} className="bg-slate-800 rounded-xl px-4 py-2 text-xs font-black text-white outline-none border border-white/10">
-                        <option value={PhaseType.STANDARD}>倒數模式</option>
-                        <option value={PhaseType.FREE}>秒錶模式</option>
-                      </select>
-                      <button onClick={() => addTimerToPhase(phase.id)} className="px-4 py-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500/20 transition-all text-xs font-black flex items-center gap-2"><UserPlus size={14} /> 新增辯位</button>
-                    </div>
+              {/* 环节列表 */}
+              <div className="space-y-4">
+                {phases.length === 0 && (
+                  <div className="p-8 text-center bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-400 space-y-3">
+                    <p className="text-sm">当前暂无任何辩论环节，您可以一键载入标准赛制：</p>
+                    <button
+                      onClick={() => setPhases(JSON.parse(JSON.stringify(TOURNAMENT_TEMPLATES['标准立论与自由辩 (通用推荐)'])))}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/30"
+                    >
+                      载入标准立论与自由辩赛制
+                    </button>
                   </div>
-                  <div className="grid gap-6">
-                    {phase.timers.map((timer) => (
-                      <div key={timer.id} className="p-6 bg-white/5 rounded-2xl flex flex-col gap-6 border border-white/5 relative group/timer">
-                        <div className="flex justify-between items-center">
-                          <input value={timer.label} onChange={(e) => updateTimer(phase.id, timer.id, { label: e.target.value })} className="bg-transparent font-black text-lg text-white outline-none w-1/3 focus:text-emerald-400 transition-colors" placeholder="辯位名稱"/>
-                          <div className="flex gap-3 items-center">
-                             <div className="flex flex-col gap-1 items-center">
-                               <span className="text-[9px] font-black text-slate-500 uppercase">總長(秒)</span>
-                               <input type="number" value={timer.durationSeconds} onChange={(e) => { const v = parseInt(e.target.value) || 0; updateTimer(phase.id, timer.id, { durationSeconds: v, remainingSeconds: timer.mode === 'countdown' ? v : 0 }); }} className="w-20 bg-white/10 rounded-xl px-2 py-1.5 text-center font-mono text-xs text-white border border-white/10"/>
-                             </div>
-                             <div className="flex flex-col gap-1 items-center">
-                               <span className="text-[9px] font-black text-amber-500 uppercase">寬限(秒)</span>
-                               <input type="number" value={timer.overtimeThresholdSeconds} onChange={(e) => { const v = parseInt(e.target.value) || 0; updateTimer(phase.id, timer.id, { overtimeThresholdSeconds: v }); }} className="w-16 bg-amber-500/10 rounded-xl px-2 py-1.5 text-center font-mono text-xs text-amber-500 border border-amber-500/20"/>
-                             </div>
-                             <button onClick={() => setAddingAlertFor(timer.id === addingAlertFor ? null : timer.id)} className={`p-2 rounded-xl transition-all ${addingAlertFor === timer.id ? 'bg-emerald-500 text-white' : 'bg-white/10 text-slate-400'}`}><Plus size={16}/></button>
-                             {addingAlertFor === timer.id && (
-                               <div className="absolute right-0 top-full mt-2 z-50 bg-slate-800 border-2 border-emerald-500 p-3 rounded-2xl shadow-2xl flex items-center gap-3">
-                                 <input type="number" autoFocus value={tempAlertValue} onChange={(e) => setTempAlertValue(e.target.value)} className="w-20 bg-black/40 rounded-lg px-2 py-1.5 text-sm text-white font-mono" placeholder="鳴鈴秒數" />
-                                 <button onClick={() => handleConfirmAddAlert(phase.id, timer.id)} className="p-2 bg-emerald-500 rounded-xl text-white"><Check size={16} /></button>
-                               </div>
-                             )}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">{timer.alertPoints.map(p => (<button key={p} onClick={() => toggleAlertPoint(phase.id, timer.id, p)} className="px-3 py-1.5 rounded-lg bg-white/5 text-[10px] font-bold text-slate-400 hover:bg-red-500/20 hover:text-red-500 transition-all flex items-center gap-2 group/alert">{p}s <X size={10}/></button>))}</div>
-                        {phase.timers.length > 1 && (<button onClick={() => removeTimerFromPhase(phase.id, timer.id)} className="absolute -right-2 -top-2 p-1.5 bg-slate-800 text-slate-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all shadow-lg"><UserMinus size={12} /></button>)}
+                )}
+                {phases.map((phase, pIndex) => (
+                  <div
+                    key={phase.id}
+                    className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 transition-all"
+                  >
+                    {/* 环节标题与控制 */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 flex-1">
+                        <span className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-black flex items-center justify-center shrink-0">
+                          {pIndex + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={phase.name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setPhases(prev => prev.map((p, idx) => idx === pIndex ? { ...p, name: val } : p));
+                          }}
+                          placeholder="输入环节名称（如：第一环节 开篇立论）"
+                          className="flex-1 bg-slate-800/80 border border-slate-700/80 px-3.5 py-2 rounded-xl text-white font-bold text-base focus:outline-none focus:border-blue-500"
+                        />
                       </div>
-                    ))}
+
+                      <div className="flex items-center gap-2">
+                        {/* 棋钟自由辩模式切换 */}
+                        <button
+                          onClick={() => {
+                            setPhases(prev => prev.map((p, idx) => idx === pIndex ? { ...p, chessMode: !p.chessMode } : p));
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
+                            phase.chessMode
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                          title="自由辩论模式下双方交替倒计时"
+                        >
+                          {phase.chessMode ? '自由辩模式 (棋钟)' : '独立发言模式'}
+                        </button>
+
+                        {/* 上移/下移 */}
+                        <button
+                          disabled={pIndex === 0}
+                          onClick={() => handleMovePhase(pIndex, 'up')}
+                          className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-lg text-slate-300 transition-colors"
+                          title="上移"
+                        >
+                          <ArrowUp size={15} />
+                        </button>
+                        <button
+                          disabled={pIndex === phases.length - 1}
+                          onClick={() => handleMovePhase(pIndex, 'down')}
+                          className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-lg text-slate-300 transition-colors"
+                          title="下移"
+                        >
+                          <ArrowDown size={15} />
+                        </button>
+
+                        {/* 删除 */}
+                        <button
+                          onClick={() => handleDeletePhase(pIndex)}
+                          className="p-2 bg-slate-800 hover:bg-red-900/40 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
+                          title="删除该环节"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 正反双方辩手时长与预警 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800/80">
+                      {(phase.timers && phase.timers.length >= 2 ? phase.timers : [
+                        phase.timers?.[0] || { id: `t-${phase.id}-aff`, label: '正方辩手', durationSeconds: 180, remainingSeconds: 180, usedSeconds: 0, isRunning: false, mode: 'countdown', warningSeconds: 30, foulCount: 0 },
+                        phase.timers?.[1] || { id: `t-${phase.id}-neg`, label: '反方辩手', durationSeconds: 180, remainingSeconds: 180, usedSeconds: 0, isRunning: false, mode: 'countdown', warningSeconds: 30, foulCount: 0 }
+                      ]).map((timer, tIndex) => {
+                        const isAff = tIndex === 0;
+                        return (
+                          <div
+                            key={timer.id || `${phase.id}-${tIndex}`}
+                            className={`p-4 rounded-xl border ${
+                              isAff
+                                ? 'bg-red-950/20 border-red-500/20'
+                                : 'bg-blue-950/20 border-blue-500/20'
+                            } space-y-3`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span
+                                className={`text-xs font-bold ${
+                                  isAff ? 'text-red-400' : 'text-blue-400'
+                                }`}
+                              >
+                                {isAff ? '正方发言席' : '反方发言席'}
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                {Math.floor(timer.durationSeconds / 60)}分
+                                {timer.durationSeconds % 60 > 0 ? `${timer.durationSeconds % 60}秒` : ''}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="col-span-1">
+                                <label className="text-[10px] text-slate-400 block mb-1">辩手标签</label>
+                                <input
+                                  type="text"
+                                  value={timer.label}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setPhases(prev => prev.map((p, idx) => {
+                                      if (idx !== pIndex) return p;
+                                      return {
+                                        ...p,
+                                        timers: p.timers.map((tm, ti) => ti === tIndex ? { ...tm, label: val } : tm)
+                                      };
+                                    }));
+                                  }}
+                                  className="w-full bg-slate-800 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+
+                              <div className="col-span-1">
+                                <label className="text-[10px] text-slate-400 block mb-1">总时长(秒)</label>
+                                <input
+                                  type="number"
+                                  min="5"
+                                  step="5"
+                                  value={timer.durationSeconds}
+                                  onChange={e => {
+                                    const val = Math.max(5, parseInt(e.target.value) || 0);
+                                    setPhases(prev => prev.map((p, idx) => {
+                                      if (idx !== pIndex) return p;
+                                      return {
+                                        ...p,
+                                        timers: p.timers.map((tm, ti) => ti === tIndex ? { ...tm, durationSeconds: val, remainingSeconds: val } : tm)
+                                      };
+                                    }));
+                                  }}
+                                  className="w-full bg-slate-800 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+
+                              <div className="col-span-1">
+                                <label className="text-[10px] text-slate-400 block mb-1">预警铃(秒)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={timer.warningSeconds}
+                                  onChange={e => {
+                                    const val = Math.max(0, parseInt(e.target.value) || 0);
+                                    setPhases(prev => prev.map((p, idx) => {
+                                      if (idx !== pIndex) return p;
+                                      return {
+                                        ...p,
+                                        timers: p.timers.map((tm, ti) => ti === tIndex ? { ...tm, warningSeconds: val } : tm)
+                                      };
+                                    }));
+                                  }}
+                                  className="w-full bg-slate-800 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <button onClick={() => setPhases(prev => prev.filter(p => p.id !== phase.id))} className="absolute -top-3 -right-3 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all shadow-xl"><X size={16}/></button>
-                </div>
-              ))}
-              <button onClick={addPhase} className="w-full py-10 border-2 border-dashed border-white/10 rounded-[2.5rem] flex items-center justify-center gap-3 text-slate-500 hover:text-white hover:border-white/30 transition-all">
-                <Plus size={24}/> <span className="font-black uppercase tracking-widest text-sm">新增賽事環節</span>
+                ))}
+              </div>
+
+              {/* 添加环节按钮 */}
+              <button
+                onClick={handleAddPhase}
+                className="w-full py-4 border-2 border-dashed border-slate-800 hover:border-blue-500/60 rounded-2xl text-slate-400 hover:text-blue-400 font-bold text-sm flex items-center justify-center gap-2 transition-all bg-slate-900/40 hover:bg-blue-500/5"
+              >
+                <Plus size={18} />
+                添加新辩论环节
               </button>
             </div>
           )}
 
-          {activeTab === 'hotkeys' && (
-            <div className="grid grid-cols-2 gap-12 animate-in slide-in-from-bottom-4 duration-300">
-               <div className="space-y-6">
-                 <h3 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-3 mb-8 border-l-4 border-emerald-500 pl-4"><Keyboard size={18} /> 全局操作</h3>
-                 <div className="space-y-4">
-                    <HotkeyInput label="全部暫停" value={appearance.hotkeys.pauseAll} onChange={(v) => updateHotkey('pauseAll', v)} />
-                    <HotkeyInput label="全部復位" value={appearance.hotkeys.resetAll} onChange={(v) => updateHotkey('resetAll', v)} />
-                    <HotkeyInput label="手動鳴鈴" value={appearance.hotkeys.manualBell} onChange={(v) => updateHotkey('manualBell', v)} />
-                    <HotkeyInput label="下一環節" value={appearance.hotkeys.nextPhase} onChange={(v) => updateHotkey('nextPhase', v)} />
-                    <HotkeyInput label="上一環節" value={appearance.hotkeys.prevPhase} onChange={(v) => updateHotkey('prevPhase', v)} />
-                 </div>
-               </div>
-               <div className="space-y-6">
-                 <h3 className="text-sm font-black text-white uppercase tracking-[0.3em] flex items-center gap-3 mb-8 border-l-4 border-blue-500 pl-4"><Activity size={18} /> 計時控制</h3>
-                 <div className="space-y-4">
-                    <HotkeyInput label="計時器 1" value={appearance.hotkeys.toggleTimer1} onChange={(v) => updateHotkey('toggleTimer1', v)} />
-                    <HotkeyInput label="計時器 2" value={appearance.hotkeys.toggleTimer2} onChange={(v) => updateHotkey('toggleTimer2', v)} />
-                    <HotkeyInput label="計時器 3" value={appearance.hotkeys.toggleTimer3} onChange={(v) => updateHotkey('toggleTimer3', v)} />
-                 </div>
-               </div>
+          {/* TAB 2: 辩题与对阵队伍 */}
+          {activeTab === 'match' && (
+            <div className="space-y-6 max-w-2xl mx-auto py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">设置当前赛场的官方大会名称、辩题与对阵双方</span>
+                <button
+                  type="button"
+                  onClick={() => setMatchInfo(DEFAULT_MATCH_INFO)}
+                  className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700 transition-colors"
+                >
+                  填入推荐示例队伍与辩题
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  赛事大会全称
+                </label>
+                <input
+                  type="text"
+                  value={matchInfo.tournamentTitle || ''}
+                  onChange={e => setMatchInfo(prev => ({ ...prev, tournamentTitle: e.target.value }))}
+                  placeholder="例如：2026 华语国际辩论锦标赛"
+                  className="w-full bg-slate-900 border border-slate-700 px-4 py-3 rounded-xl text-white font-bold focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  辩论主辩题 (Motion)
+                </label>
+                <textarea
+                  rows={3}
+                  value={matchInfo.motion || ''}
+                  onChange={e => setMatchInfo(prev => ({ ...prev, motion: e.target.value }))}
+                  placeholder="例如：人工智能的发展对人类文化传承利大于弊 / 弊大于利"
+                  className="w-full bg-slate-900 border border-slate-700 p-4 rounded-xl text-white font-bold text-base focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div className="space-y-2 p-4 rounded-xl bg-red-950/20 border border-red-500/30">
+                  <label className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                    正方队伍名称
+                  </label>
+                  <input
+                    type="text"
+                    value={matchInfo.affirmativeTeam || ''}
+                    onChange={e => setMatchInfo(prev => ({ ...prev, affirmativeTeam: e.target.value }))}
+                    placeholder="例如：思辨先锋队"
+                    className="w-full bg-slate-800 border border-slate-700 px-3.5 py-2.5 rounded-lg text-white font-bold focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div className="space-y-2 p-4 rounded-xl bg-blue-950/20 border border-blue-500/30">
+                  <label className="text-xs font-bold text-blue-400 uppercase tracking-wider">
+                    反方队伍名称
+                  </label>
+                  <input
+                    type="text"
+                    value={matchInfo.negativeTeam || ''}
+                    onChange={e => setMatchInfo(prev => ({ ...prev, negativeTeam: e.target.value }))}
+                    placeholder="例如：格物立言队"
+                    className="w-full bg-slate-800 border border-slate-700 px-3.5 py-2.5 rounded-lg text-white font-bold focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: 视觉主题配色 */}
+          {activeTab === 'theme' && (
+            <div className="space-y-6">
+              {/* 当前激活主题说明卡 */}
+              <div className="p-5 rounded-2xl bg-gradient-to-r from-orange-950/30 via-slate-900 to-amber-950/20 border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/40 text-[11px] font-bold">
+                      当前实时生效中
+                    </span>
+                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                      {STAGE_THEMES[currentThemeId]?.name}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-300 max-w-2xl">
+                    {STAGE_THEMES[currentThemeId]?.tagline}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">大屏色标:</span>
+                  <div className="flex items-center gap-1.5 p-1.5 bg-black/60 rounded-xl border border-slate-800">
+                    <span 
+                      className="w-5 h-5 rounded-lg border border-white/20 shadow" 
+                      style={{ backgroundColor: STAGE_THEMES[currentThemeId]?.dotColors[0] }} 
+                      title="主背景深色"
+                    />
+                    <span 
+                      className="w-5 h-5 rounded-lg border border-white/20 shadow" 
+                      style={{ backgroundColor: STAGE_THEMES[currentThemeId]?.dotColors[1] }} 
+                      title="舞台高光色"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 5套预设主题选择卡片网格 */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <Sparkles size={16} className="text-orange-400" />
+                    赛事大屏专属主题（点击卡片即刻全局换肤）
+                  </h4>
+                  <span className="text-xs text-slate-400">支持舞台抗光与电竞级高对比度</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {(Object.keys(STAGE_THEMES) as ThemeId[]).map((themeKey) => {
+                    const theme = STAGE_THEMES[themeKey];
+                    const isSelected = themeKey === currentThemeId;
+
+                    return (
+                      <div
+                        key={theme.id}
+                        onClick={() => onSelectTheme(theme.id)}
+                        className={`group relative p-4 rounded-2xl cursor-pointer transition-all duration-200 border-2 flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-slate-900/90 border-orange-500 shadow-xl shadow-orange-950/30 ring-2 ring-orange-500/20'
+                            : 'bg-slate-900/50 border-slate-800 hover:border-slate-700 hover:bg-slate-900/80'
+                        }`}
+                      >
+                        {/* 顶部标题与色彩预览圆点 */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex -space-x-1.5 items-center">
+                                <span
+                                  className="w-5 h-5 rounded-full border-2 border-slate-900 shadow-sm"
+                                  style={{ backgroundColor: theme.dotColors[0] }}
+                                />
+                                <span
+                                  className="w-5 h-5 rounded-full border-2 border-slate-900 shadow-sm"
+                                  style={{ backgroundColor: theme.dotColors[1] }}
+                                />
+                              </div>
+                              <span className="font-extrabold text-white text-base">
+                                {theme.name}
+                              </span>
+                            </div>
+
+                            {isSelected ? (
+                              <span className="flex items-center gap-1 text-[11px] font-bold text-orange-400 bg-orange-500/15 px-2 py-0.5 rounded-full border border-orange-500/30">
+                                <Check size={12} strokeWidth={3} /> 使用中
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 group-hover:text-slate-300">
+                                点击应用
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                            {theme.tagline}
+                          </p>
+                        </div>
+
+                        {/* 迷你计时器预览效果 */}
+                        <div className="pt-3 border-t border-slate-800/80 bg-black/40 -mx-4 -mb-4 p-3 rounded-b-2xl">
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                            <span>正反方计时色彩演示</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className={`p-2 rounded-lg text-center ${theme.sideBadge.aff}`}>
+                              <span className="text-[10px] block font-medium opacity-80">正方辩手</span>
+                              <span className={`text-base font-black font-mono leading-none ${theme.timerDigitClass.aff}`}>
+                                03:00
+                              </span>
+                            </div>
+                            <div className={`p-2 rounded-lg text-center ${theme.sideBadge.neg}`}>
+                              <span className="text-[10px] block font-medium opacity-80">反方辩手</span>
+                              <span className={`text-base font-black font-mono leading-none ${theme.timerDigitClass.neg}`}>
+                                03:00
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 配色对照规范说明 */}
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+                <span>💡 提示：主题设置实时同步至浏览器本地缓存，全屏投影和双计时卡片均会同步呈现对应光效与色调。</span>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: 音效与操作偏好 */}
+          {activeTab === 'settings' && (
+            <div className="space-y-6 max-w-2xl mx-auto py-2">
+              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-white">黄铜拍铃音效试听</h4>
+                    <p className="text-xs text-slate-400">使用 Web Audio API 多泛音合成，模拟赛场黄铜敲击音</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => bellSynthesizer.play('single', settings.volume)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-slate-700"
+                    >
+                      单响 (30s)
+                    </button>
+                    <button
+                      onClick={() => bellSynthesizer.play('double', settings.volume)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-slate-700"
+                    >
+                      双响 (到时)
+                    </button>
+                    <button
+                      onClick={() => bellSynthesizer.play('triple', settings.volume)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-slate-700"
+                    >
+                      三响 (违规)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">音效音量</span>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={settings.volume}
+                      onChange={e => setSettings(prev => ({ ...prev, volume: parseFloat(e.target.value) }))}
+                      className="w-32 accent-blue-500"
+                    />
+                    <span className="text-xs font-mono text-slate-400 w-8">
+                      {Math.round(settings.volume * 100)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-white">补时与扣时步长</h4>
+                    <p className="text-xs text-slate-400">计时卡片上加减按钮单次微调的秒数</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {[5, 10, 15, 30].map(s => (
+                      <button
+                        key={s}
+                        onClick={() => setSettings(prev => ({ ...prev, timeStep: s }))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                          settings.timeStep === s
+                            ? 'bg-blue-600 text-white border-blue-500'
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        {s}秒
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold text-slate-300">全局静音模式</span>
+                    <p className="text-[11px] text-slate-500">关闭所有拍铃与倒计时提醒声音</p>
+                  </div>
+                  <button
+                    onClick={() => setSettings(prev => ({ ...prev, isMute: !prev.isMute }))}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      settings.isMute ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    {settings.isMute ? '已静音' : '声音开启'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="p-10 border-t border-white/5 flex justify-end gap-6 bg-slate-900/60 backdrop-blur-md">
-          <button onClick={onClose} className="px-8 py-4 rounded-xl font-black text-xs uppercase text-slate-400 hover:text-white transition-colors">取消</button>
-          <button onClick={() => onSave(phases, appearance)} className="px-10 py-4 rounded-xl font-black text-xs uppercase text-white shadow-xl hover:scale-105 active:scale-95 transition-all" style={{ backgroundColor: appearance.accentColor }}>保存配置</button>
+        {/* 弹窗底部操作 */}
+        <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+          >
+            放弃修改
+          </button>
+
+          <button
+            onClick={handleSave}
+            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95"
+          >
+            <Save size={16} />
+            保存赛制配置
+          </button>
         </div>
+
       </div>
+
+      {/* JSON 导入导出弹窗 */}
+      <JsonTransferModal
+        isOpen={isJsonModalOpen}
+        onClose={() => setIsJsonModalOpen(false)}
+        phases={phases}
+        matchInfo={matchInfo}
+        settings={settings}
+        onImport={(importedPhases, importedMatchInfo, importedSettings) => {
+          setPhases(importedPhases);
+          setMatchInfo(importedMatchInfo);
+          if (importedSettings) setSettings(importedSettings);
+        }}
+      />
     </div>
   );
 };
-
-const HotkeyInput = ({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) => (
-  <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 group hover:border-white/20 transition-all">
-    <span className="text-xs font-bold text-slate-400 group-hover:text-slate-200 transition-colors">{label}</span>
-    <input value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') return; e.preventDefault(); onChange(e.key); }} className="w-24 bg-slate-800 rounded-xl py-2 text-center text-sm font-black text-emerald-400 border border-white/5 outline-none uppercase transition-all" />
-  </div>
-);
