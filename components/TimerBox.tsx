@@ -1,7 +1,6 @@
 import React from 'react';
 import { Play, Pause, RotateCcw, Plus, Minus, AlertTriangle, Clock, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { TimerMode, StageSettings } from '../types';
-import { ThemeConfig, STAGE_THEMES } from '../themes';
 
 interface TimerBoxProps {
   id: string;
@@ -17,7 +16,6 @@ interface TimerBoxProps {
   isAffirmative: boolean;
   settings: StageSettings;
   hotkeyNum: string; // "1" for Affirmative, "2" for Negative
-  theme?: ThemeConfig;
   onToggle: () => void;
   onReset: () => void;
   onAdjustTime: (delta: number) => void;
@@ -48,7 +46,6 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
   isAffirmative,
   settings,
   hotkeyNum,
-  theme,
   onToggle,
   onReset,
   onAdjustTime,
@@ -56,7 +53,6 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
   onUpdateFoul,
   onUpdateStep
 }) => {
-  const activeTheme = theme || STAGE_THEMES['black-orange'];
   const [localStep, setLocalStep] = React.useState(settings.timeStep || 10);
 
   React.useEffect(() => {
@@ -82,7 +78,10 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
   // Progress fraction (0 to 1)
   const progressRatio = durationSeconds > 0 ? Math.min(1, Math.max(0, 1 - (seconds / durationSeconds))) : 0;
 
-  let digitColorClass = isAffirmative ? activeTheme.timerDigitClass.aff : activeTheme.timerDigitClass.neg;
+  // Visual classes based on state
+  const sideColor = isAffirmative ? 'red' : 'blue';
+
+  let digitColorClass = isAffirmative ? 'text-red-400' : 'text-blue-400';
   let glowClass = '';
   if (isOvertime) {
     digitColorClass = 'text-red-500';
@@ -91,31 +90,31 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
     digitColorClass = 'text-amber-400';
     glowClass = 'glow-amber';
   } else if (isRunning) {
-    glowClass = isAffirmative ? activeTheme.timerDigitClass.affGlow : activeTheme.timerDigitClass.negGlow;
+    glowClass = isAffirmative ? 'glow-red' : 'glow-blue';
   }
 
   const borderClass = isRunning
     ? isAffirmative
-      ? activeTheme.sideCardBorder.aff + ' shadow-2xl'
-      : activeTheme.sideCardBorder.neg + ' shadow-2xl'
-    : 'border-slate-800/80 hover:border-slate-700/80';
+      ? 'border-red-500 shadow-[0_0_40px_rgba(239,68,68,0.35)]'
+      : 'border-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.35)]'
+    : 'border-slate-800/80 hover:border-slate-700';
 
-  const cardBgStyle = isRunning
-    ? isAffirmative
-      ? 'bg-gradient-to-b from-orange-950/20 via-slate-900/90 to-[#0A0D16]'
-      : 'bg-gradient-to-b from-amber-950/20 via-slate-900/90 to-[#0A0D16]'
-    : activeTheme.cardBaseClass;
+  const bgGradient = isAffirmative
+    ? isRunning ? 'bg-gradient-to-b from-red-950/30 to-slate-900/90' : 'bg-slate-900/70'
+    : isRunning ? 'bg-gradient-to-b from-blue-950/30 to-slate-900/90' : 'bg-slate-900/70';
 
   return (
     <div
-      className={`relative flex-1 min-w-[320px] max-w-[760px] rounded-3xl border-2 ${borderClass} ${cardBgStyle} p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 stage-box-shadow backdrop-blur-xl select-none`}
+      className={`relative flex-1 min-w-[320px] max-w-[760px] rounded-3xl border-2 ${borderClass} ${bgGradient} p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 stage-box-shadow backdrop-blur-xl select-none`}
     >
       {/* 顶部阵营与状态栏 */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-800/80 gap-3">
         <div className="flex items-center gap-3">
           <span
             className={`px-3 py-1 rounded-md text-xs font-bold tracking-wider ${
-              isAffirmative ? activeTheme.sideBadge.aff : activeTheme.sideBadge.neg
+              isAffirmative
+                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
             }`}
           >
             {isAffirmative ? '正方' : '反方'}
@@ -186,7 +185,7 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
         <div className="absolute top-0 left-0 w-full h-1.5 bg-slate-800">
           <div
             className={`h-full transition-all duration-300 ${
-              isAffirmative ? activeTheme.sideProgressBar.aff : activeTheme.sideProgressBar.neg
+              isAffirmative ? 'bg-red-500' : 'bg-blue-500'
             }`}
             style={{ width: `${progressRatio * 100}%` }}
           />
@@ -218,51 +217,56 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
       <div className="space-y-4">
         {/* 时间微调与犯规 */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          {/* 自由自定义微调秒数与补扣时按钮 */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-slate-400 font-medium">调整:</span>
-            <button
-              onClick={() => onAdjustTime(localStep)}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/80 rounded-lg text-slate-200 font-semibold active:scale-95 transition-all"
-              title={`补时 ${localStep} 秒`}
-            >
-              +{localStep}s
-            </button>
-            <button
-              onClick={() => onAdjustTime(-localStep)}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700/80 rounded-lg text-slate-200 font-semibold active:scale-95 transition-all"
-              title={`扣时 ${localStep} 秒`}
-            >
-              -{localStep}s
-            </button>
-
-            {/* 自定义步长数字输入框 */}
-            <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-700/80 rounded-lg px-2 py-1" title="点击直接修改单次调整秒数">
-              <span className="text-[10px] text-slate-500">步长:</span>
+            <span className="text-slate-400 font-semibold">微调:</span>
+            
+            {/* 可自由输入任意秒数的输入框 */}
+            <div className="flex items-center bg-slate-900 border border-slate-700 hover:border-blue-500/80 focus-within:border-blue-500 rounded-lg px-2 py-1 shadow-inner transition-colors">
               <input
                 type="number"
                 min="1"
-                max="300"
+                max="600"
                 value={localStep}
                 onChange={e => handleStepChange(parseInt(e.target.value) || 1)}
-                className="w-8 text-center font-mono font-bold text-amber-300 text-xs bg-transparent focus:outline-none"
+                className="w-9 text-center font-mono font-black text-amber-300 text-xs bg-transparent focus:outline-none"
+                title="可自由输入任意秒数 (例如 1秒、5秒、15秒、30秒、60秒)"
               />
-              <span className="text-[10px] text-slate-400">秒</span>
+              <span className="text-[10px] text-slate-400 select-none">秒</span>
             </div>
 
-            {/* 常用秒数快速点选 */}
-            <div className="hidden sm:flex items-center gap-1">
-              {[5, 10, 15, 30].map(s => (
+            {/* 动态加时/补时按钮 */}
+            <button
+              onClick={() => onAdjustTime(localStep)}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-emerald-950/40 text-emerald-300 hover:text-emerald-200 border border-slate-700 hover:border-emerald-500/50 rounded-lg font-bold text-xs active:scale-95 transition-all shadow-sm flex items-center gap-0.5"
+              title={`点击为此方补时 +${localStep} 秒`}
+            >
+              +{localStep}秒
+            </button>
+
+            {/* 动态减时/扣时按钮 */}
+            <button
+              onClick={() => onAdjustTime(-localStep)}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/50 rounded-lg font-bold text-xs active:scale-95 transition-all shadow-sm flex items-center gap-0.5"
+              title={`点击为此方扣时 -${localStep} 秒`}
+            >
+              -{localStep}秒
+            </button>
+
+            {/* 常用秒数快速点选 (5秒 / 10秒 / 15秒 / 30秒 / 60秒) */}
+            <div className="flex items-center gap-1 pl-0.5">
+              {[5, 10, 15, 30, 60].map(s => (
                 <button
                   key={s}
                   onClick={() => handleStepChange(s)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold transition-colors ${
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold transition-all ${
                     localStep === s 
-                      ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50' 
-                      : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/50'
+                      ? 'bg-blue-600 text-white shadow-sm' 
+                      : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/60'
                   }`}
-                  title={`设为 ${s} 秒`}
+                  title={`快速切换为 ${s} 秒`}
                 >
-                  {s}s
+                  {s}秒
                 </button>
               ))}
             </div>
@@ -301,8 +305,8 @@ export const TimerBox: React.FC<TimerBoxProps> = ({
               isRunning
                 ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30'
                 : isAffirmative
-                ? activeTheme.sideStartBtn.aff
-                : activeTheme.sideStartBtn.neg
+                ? 'bg-red-600 hover:bg-red-500 shadow-red-600/30'
+                : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
             }`}
           >
             {isRunning ? (

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Settings, ChevronLeft, ChevronRight, Bell, BellOff, RotateCcw, 
   Pause, Play, Zap, Maximize, Minimize, FileText, Volume2, 
-  Clock, ShieldAlert, Sparkles, Check, Edit3, FileCode, Palette, ChevronDown
+  Clock, ShieldAlert, Sparkles, Check, Edit3, FileCode
 } from 'lucide-react';
 import { DebatePhase, PhaseType, MatchInfo, DebateRecord, StageSettings, TimerMode } from './types';
 import { TOURNAMENT_TEMPLATES, DEFAULT_MATCH_INFO } from './templates';
@@ -11,7 +11,6 @@ import { ConfigModal } from './components/ConfigModal';
 import { RecordDrawer } from './components/RecordDrawer';
 import { JsonTransferModal } from './components/JsonTransferModal';
 import { bellSynthesizer } from './audioBell';
-import { ThemeId, STAGE_THEMES, DEFAULT_THEME_ID } from './themes';
 
 const DEFAULT_SETTINGS: StageSettings = {
   isMute: false,
@@ -23,41 +22,20 @@ const DEFAULT_SETTINGS: StageSettings = {
 };
 
 export const App: React.FC = () => {
-  // 赛制环节状态持久化 (确保环节与辩手定时器永不为空)
+  // 赛制环节状态持久化
   const [phases, setPhases] = useState<DebatePhase[]>(() => {
     try {
       const saved = localStorage.getItem('debate_stage_phases_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p, idx) => ({
-            ...p,
-            timers: Array.isArray(p.timers) && p.timers.length >= 2 ? p.timers : [
-              p.timers?.[0] || { id: `t-${p.id || idx}-aff`, label: '正方辩手', durationSeconds: 180, remainingSeconds: 180, usedSeconds: 0, isRunning: false, mode: 'countdown', warningSeconds: 30, foulCount: 0 },
-              p.timers?.[1] || { id: `t-${p.id || idx}-neg`, label: '反方辩手', durationSeconds: 180, remainingSeconds: 180, usedSeconds: 0, isRunning: false, mode: 'countdown', warningSeconds: 30, foulCount: 0 }
-            ]
-          }));
-        }
-      }
+      if (saved) return JSON.parse(saved);
     } catch (e) {}
     return TOURNAMENT_TEMPLATES['标准立论与自由辩 (通用推荐)'];
   });
 
-  // 赛事对阵与辩题信息持久化 (确保对阵队伍与辩题非空)
+  // 赛事对阵与辩题信息持久化
   const [matchInfo, setMatchInfo] = useState<MatchInfo>(() => {
     try {
       const saved = localStorage.getItem('debate_stage_match_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          return {
-            tournamentTitle: parsed.tournamentTitle || DEFAULT_MATCH_INFO.tournamentTitle,
-            motion: parsed.motion || DEFAULT_MATCH_INFO.motion,
-            affirmativeTeam: parsed.affirmativeTeam || DEFAULT_MATCH_INFO.affirmativeTeam,
-            negativeTeam: parsed.negativeTeam || DEFAULT_MATCH_INFO.negativeTeam
-          };
-        }
-      }
+      if (saved) return JSON.parse(saved);
     } catch (e) {}
     return DEFAULT_MATCH_INFO;
   });
@@ -80,39 +58,14 @@ export const App: React.FC = () => {
     return [];
   });
 
-  // 赛场视觉主题持久化 (默认曜石黑橙高对比度)
-  const [currentThemeId, setCurrentThemeId] = useState<ThemeId>(() => {
-    try {
-      const saved = localStorage.getItem('debate_stage_theme_v1') as ThemeId;
-      if (saved && STAGE_THEMES[saved]) return saved;
-    } catch (e) {}
-    return DEFAULT_THEME_ID;
-  });
-
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
-  const themeMenuRef = useRef<HTMLDivElement>(null);
-
   const [currentPhaseIndex, setCurrentPhaseIndex] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isRecordDrawerOpen, setIsRecordDrawerOpen] = useState(false);
-  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
+  const [isJsonTransferOpen, setIsJsonTransferOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isEditingMotion, setIsEditingMotion] = useState(false);
   const [motionDraft, setMotionDraft] = useState(matchInfo.motion);
-
-  // 点击外部自动收起主题选择菜单
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
-        setIsThemeMenuOpen(false);
-      }
-    };
-    if (isThemeMenuOpen) {
-      document.addEventListener('mousedown', handleOutsideClick);
-      return () => document.removeEventListener('mousedown', handleOutsideClick);
-    }
-  }, [isThemeMenuOpen]);
 
   // 记录各计时器已触发过的提醒点（防止重复鸣铃）
   const ringTrackerRef = useRef<{ [timerId: string]: { warningRinged: boolean; zeroRinged: boolean; overtimeRinged: boolean } }>({});
@@ -147,9 +100,8 @@ export const App: React.FC = () => {
       localStorage.setItem('debate_stage_match_v1', JSON.stringify(matchInfo));
       localStorage.setItem('debate_stage_settings_v1', JSON.stringify(settings));
       localStorage.setItem('debate_stage_records_v1', JSON.stringify(records));
-      localStorage.setItem('debate_stage_theme_v1', currentThemeId);
     } catch (e) {}
-  }, [phases, matchInfo, settings, records, currentThemeId]);
+  }, [phases, matchInfo, settings, records]);
 
   // 全屏切换动作
   const toggleFullscreen = () => {
@@ -384,7 +336,7 @@ export const App: React.FC = () => {
       // 避免输入框内部打字时误触
       const activeEl = document.activeElement;
       const isInputActive = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
-      if (isInputActive || isConfigOpen || isRecordDrawerOpen || isJsonModalOpen) return;
+      if (isInputActive || isConfigOpen || isRecordDrawerOpen || isJsonTransferOpen) return;
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -430,7 +382,7 @@ export const App: React.FC = () => {
   }, [
     isConfigOpen,
     isRecordDrawerOpen,
-    isJsonModalOpen,
+    isJsonTransferOpen,
     phases,
     currentPhaseIndex,
     pauseAll,
@@ -448,19 +400,18 @@ export const App: React.FC = () => {
   };
 
   const isCurrentChessMode = currentPhase.chessMode ?? settings.isChessClockMode;
-  const currentTheme = STAGE_THEMES[currentThemeId] || STAGE_THEMES['black-orange'];
 
   return (
-    <div className={`min-h-screen flex flex-col ${currentTheme.bgClass} text-slate-100 transition-colors duration-300 ${isFullscreen ? 'p-4 sm:p-6 justify-between' : 'p-4 sm:p-6 md:p-8'}`}>
+    <div className={`min-h-screen flex flex-col bg-[#070B14] text-slate-100 ${isFullscreen ? 'p-4 sm:p-6 justify-between' : 'p-4 sm:p-6 md:p-8'}`}>
       
       {/* 顶部赛场信息条与全局操作 (Top Bar Contract: 3-Zone) */}
       <header className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
         
         {/* Zone 1: 赛事名称与现场时钟 */}
         <div className="flex items-center gap-4">
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs font-bold border ${currentTheme.headerBadgeClass}`}>
-            <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>
-            专业赛场控制台
+          <div className="flex items-center gap-2 px-3 py-1 bg-blue-600/10 border border-blue-500/20 rounded-lg text-xs font-bold text-blue-400">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+            专业赛场
           </div>
           <div>
             <h1 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
@@ -500,62 +451,8 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Zone 3: 核心操作按钮与快捷主题切换 */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* 快速主题切换下拉菜单 */}
-          <div className="relative" ref={themeMenuRef}>
-            <button
-              onClick={() => setIsThemeMenuOpen(prev => !prev)}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-200 transition-all active:scale-95 shadow-sm"
-              title="快速切换赛事主题配色"
-            >
-              <div className="flex -space-x-1 items-center">
-                <span className="w-3 h-3 rounded-full border border-slate-900 shadow" style={{ backgroundColor: currentTheme.dotColors[0] }} />
-                <span className="w-3 h-3 rounded-full border border-slate-900 shadow" style={{ backgroundColor: currentTheme.dotColors[1] }} />
-              </div>
-              <span className="font-bold hidden sm:inline">{currentTheme.name}</span>
-              <ChevronDown size={13} className={`text-slate-400 transition-transform ${isThemeMenuOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {isThemeMenuOpen && (
-              <div className="absolute right-0 mt-2 w-64 bg-[#0F1322] border border-slate-700/90 rounded-2xl shadow-2xl p-2 z-50">
-                <div className="px-3 py-2 text-[11px] font-bold text-slate-400 border-b border-slate-800/80 flex items-center justify-between">
-                  <span>切换大屏赛场配色</span>
-                  <span className="text-[10px] text-orange-400">5款专业预设</span>
-                </div>
-                <div className="space-y-1 mt-1">
-                  {(Object.keys(STAGE_THEMES) as ThemeId[]).map((tId) => {
-                    const themeObj = STAGE_THEMES[tId];
-                    const isSelected = tId === currentThemeId;
-                    return (
-                      <button
-                        key={tId}
-                        onClick={() => {
-                          setCurrentThemeId(tId);
-                          setIsThemeMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                          isSelected
-                            ? 'bg-orange-500/15 text-orange-300 border border-orange-500/30'
-                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex -space-x-1 items-center">
-                            <span className="w-3.5 h-3.5 rounded-full border border-black/50" style={{ backgroundColor: themeObj.dotColors[0] }} />
-                            <span className="w-3.5 h-3.5 rounded-full border border-black/50" style={{ backgroundColor: themeObj.dotColors[1] }} />
-                          </div>
-                          <span>{themeObj.name}</span>
-                        </div>
-                        {isSelected && <Check size={14} className="text-orange-400" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
+        {/* Zone 3: 核心操作按钮 */}
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setIsRecordDrawerOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-300 transition-all active:scale-95 shadow-sm"
@@ -571,6 +468,15 @@ export const App: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setIsJsonTransferOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-300 transition-all active:scale-95 shadow-sm"
+            title="导入或导出完整赛制 JSON 文件"
+          >
+            <FileCode size={15} className="text-emerald-400" />
+            <span className="hidden sm:inline">导入/导出</span>
+          </button>
+
+          <button
             onClick={toggleFullscreen}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-300 transition-all active:scale-95 shadow-sm"
             title="投影全屏模式 (按 F 键)"
@@ -580,17 +486,11 @@ export const App: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setIsJsonModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-slate-300 transition-all active:scale-95 shadow-sm"
-            title="导入或导出赛制 JSON 包"
-          >
-            <FileCode size={15} className="text-amber-400" />
-            <span className="hidden sm:inline">导入/导出</span>
-          </button>
-
-          <button
-            onClick={() => setIsConfigOpen(true)}
-            className={`flex items-center gap-1.5 px-4 py-2 ${currentTheme.primaryAccentBg} text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg`}
+            onClick={() => {
+              pauseAll();
+              setIsConfigOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-lg shadow-blue-600/30"
           >
             <Settings size={15} />
             <span>配置赛制</span>
@@ -599,14 +499,14 @@ export const App: React.FC = () => {
       </header>
 
       {/* 辩题展示条 (支持就地快速修改) */}
-      <section className={`my-4 sm:my-6 p-4 sm:p-5 rounded-2xl border transition-all ${currentTheme.motionBarClass} flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+      <section className="my-4 sm:my-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-red-950/20 via-slate-900/60 to-blue-950/20 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+            <span className="text-[11px] font-bold tracking-wider text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
               辩论主辩题
             </span>
             <span className="text-xs text-slate-400">
-              正方：<strong className="text-red-400">{matchInfo.affirmativeTeam}</strong> vs 反方：<strong className="text-blue-400">{matchInfo.negativeTeam}</strong>
+              正方：<strong className="text-red-400">{matchInfo.affirmativeTeam}</strong> 对阵 反方：<strong className="text-blue-400">{matchInfo.negativeTeam}</strong>
             </span>
           </div>
 
@@ -684,7 +584,7 @@ export const App: React.FC = () => {
                 onClick={() => changePhase(pIdx)}
                 className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all truncate shrink-0 border ${
                   isActive
-                    ? currentTheme.activePhaseBtnClass
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30'
                     : isCompleted
                     ? 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200'
                     : 'bg-slate-900/40 text-slate-500 border-slate-800/60 hover:text-slate-300'
@@ -712,19 +612,14 @@ export const App: React.FC = () => {
       {/* 赛场中心核心舞台对阵双栏 (Stage Duel Center) */}
       <main className="flex-1 flex flex-col items-center justify-center my-2">
         
-        {/* 当前赛段大标题 */}
-        <div className="text-center mb-6">
-          <span className={`text-xs font-bold tracking-widest uppercase ${currentTheme.primaryAccentText}`}>
-            第 0{currentPhaseIndex + 1} 环节 · 共 0{phases.length} 环节
+        {/* 当前赛段大标题 (极简专业竞技舞台，无多余说明文本干扰) */}
+        <div className="text-center mb-4 sm:mb-6">
+          <span className="text-[11px] sm:text-xs font-bold text-blue-400 tracking-wider">
+            第 {currentPhaseIndex + 1} 环节 / 共 {phases.length} 环节
           </span>
           <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight mt-1">
             {currentPhase.name}
           </h2>
-          {currentPhase.description && (
-            <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl mx-auto">
-              {currentPhase.description}
-            </p>
-          )}
         </div>
 
         {/* 双计时器并列对抗区域 */}
@@ -746,7 +641,6 @@ export const App: React.FC = () => {
                 foulCount={t.foulCount}
                 isAffirmative={isAff}
                 settings={settings}
-                theme={currentTheme}
                 hotkeyNum={isAff ? '1' : '2'}
                 onToggle={() => toggleTimer(t.id)}
                 onReset={() => {
@@ -762,7 +656,7 @@ export const App: React.FC = () => {
                 onAdjustTime={(d) => adjustTimer(t.id, d)}
                 onSwitchMode={(m) => switchTimerMode(t.id, m)}
                 onUpdateFoul={(d) => updateFoul(t.id, d)}
-                onUpdateStep={(newStep) => setSettings(prev => ({ ...prev, timeStep: newStep }))}
+                onUpdateStep={(step) => setSettings(prev => ({ ...prev, timeStep: step }))}
               />
             );
           })}
@@ -814,14 +708,9 @@ export const App: React.FC = () => {
       </main>
 
       {/* 底部极速快捷键参考栏 (Footer Hotkey Strip) */}
-      <footer className="mt-6 pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 font-medium">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-          <span>辩论赛场控制台运行中 · 拟真黄铜声学合成引擎就绪</span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-400">
-          <span><kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono">Space</kbd> 启停</span>
+      <footer className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-center text-xs text-slate-500 font-medium">
+        <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-400">
+          <span><kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono">空格键</kbd> 启停</span>
           <span><kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono">1 / 2</kbd> 正反方切换</span>
           <span><kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono">← / →</kbd> 切环节</span>
           <span><kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 font-mono">B</kbd> 拍铃</span>
@@ -838,8 +727,6 @@ export const App: React.FC = () => {
         phases={phases}
         matchInfo={matchInfo}
         settings={settings}
-        currentThemeId={currentThemeId}
-        onSelectTheme={setCurrentThemeId}
         onSave={(newPhases, newMatchInfo, newSettings) => {
           setPhases(newPhases);
           setMatchInfo(newMatchInfo);
@@ -860,10 +747,10 @@ export const App: React.FC = () => {
         onClearRecords={() => setRecords([])}
       />
 
-      {/* 赛制 JSON 导入导出弹窗 */}
+      {/* 赛制与赛事配置 JSON 导入导出弹窗 */}
       <JsonTransferModal
-        isOpen={isJsonModalOpen}
-        onClose={() => setIsJsonModalOpen(false)}
+        isOpen={isJsonTransferOpen}
+        onClose={() => setIsJsonTransferOpen(false)}
         phases={phases}
         matchInfo={matchInfo}
         settings={settings}

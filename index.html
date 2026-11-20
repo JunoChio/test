@@ -3,9 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Debate Stage Pro - 專業辯論大屏計時系統</title>
+    <title>專業辯論大屏計時系統</title>
+    <script>
+      // Compatibility shim: Ensure window.fetch has both getter and setter
+      // Prevents "TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      // when browser extensions (e.g. adblockers, request interceptors) attempt to patch window.fetch
+      (function() {
+        try {
+          var originalFetch = window.fetch;
+          var customFetch = originalFetch ? function() { return originalFetch.apply(this, arguments); } : undefined;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return customFetch || originalFetch;
+            },
+            set: function(fn) {
+              customFetch = fn;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {}
+      })();
+    </script>
     <meta name="description" content="專為辯論賽事大屏投影打造的專業級計時系統，支持高對比度舞台視效、自定義賽制環節、擬真拍鈴音效、辯題隊伍自定義與快捷鍵極速操控。">
-    <meta property="og:title" content="Debate Stage Pro - 專業辯論大屏計時系統">
+    <meta property="og:title" content="專業辯論大屏計時系統">
     <meta property="og:description" content="專為辯論賽事大屏投影打造的專業級計時系統，支持高對比度舞台視效、自定義賽制環節、擬真拍鈴音效、辯題隊伍自定義與快捷鍵極速操控。">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,24 +60,6 @@
         }
         .glow-amber {
             text-shadow: 0 0 35px rgba(245, 158, 11, 0.6), 0 0 10px rgba(245, 158, 11, 0.4);
-        }
-        .glow-orange {
-            text-shadow: 0 0 40px rgba(249, 115, 22, 0.65), 0 0 12px rgba(249, 115, 22, 0.45);
-        }
-        .glow-gold {
-            text-shadow: 0 0 40px rgba(234, 179, 8, 0.65), 0 0 12px rgba(234, 179, 8, 0.45);
-        }
-        .glow-cyan {
-            text-shadow: 0 0 40px rgba(6, 182, 212, 0.65), 0 0 12px rgba(6, 182, 212, 0.45);
-        }
-        .glow-purple {
-            text-shadow: 0 0 40px rgba(168, 85, 247, 0.65), 0 0 12px rgba(168, 85, 247, 0.45);
-        }
-        .glow-white {
-            text-shadow: 0 0 35px rgba(255, 255, 255, 0.5), 0 0 10px rgba(255, 255, 255, 0.3);
-        }
-        .glow-emerald {
-            text-shadow: 0 0 35px rgba(16, 185, 129, 0.6), 0 0 10px rgba(16, 185, 129, 0.4);
         }
         .stage-box-shadow {
             box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);

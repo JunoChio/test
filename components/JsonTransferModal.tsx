@@ -1,15 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { X, Download, Upload, Copy, Check, AlertTriangle, FileCode, CheckCircle2, ArrowRight } from 'lucide-react';
-import { DebatePhase, MatchInfo, StageSettings } from '../types';
-
-interface TournamentBundle {
-  schema: string;
-  version: string;
-  exportTime: string;
-  matchInfo: MatchInfo;
-  settings: StageSettings;
-  phases: DebatePhase[];
-}
+import React, { useState } from 'react';
+import { X, Download, Upload, Copy, Check, FileCode, AlertCircle, FileText, CheckCircle2 } from 'lucide-react';
+import { DebatePhase, MatchInfo, StageSettings, PhaseType } from '../types';
 
 interface JsonTransferModalProps {
   isOpen: boolean;
@@ -17,7 +8,7 @@ interface JsonTransferModalProps {
   phases: DebatePhase[];
   matchInfo: MatchInfo;
   settings: StageSettings;
-  onImport: (importedPhases: DebatePhase[], importedMatchInfo: MatchInfo, importedSettings?: StageSettings) => void;
+  onImport: (phases: DebatePhase[], matchInfo: MatchInfo, settings?: StageSettings) => void;
 }
 
 export const JsonTransferModal: React.FC<JsonTransferModalProps> = ({
@@ -30,162 +21,188 @@ export const JsonTransferModal: React.FC<JsonTransferModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
   const [copied, setCopied] = useState(false);
-  const [importJsonText, setImportJsonText] = useState('');
-  const [importError, setImportError] = useState<string | null>(null);
+  
+  // 导入状态
+  const [importText, setImportText] = useState('');
+  const [parseError, setParseError] = useState<string | null>(null);
   const [parsedPreview, setParsedPreview] = useState<{
-    phaseCount: number;
+    phasesCount: number;
+    tournamentTitle: string;
     motion: string;
-    affTeam: string;
-    negTeam: string;
-    validData: TournamentBundle | null;
+    affirmativeTeam: string;
+    negativeTeam: string;
+    data: { phases: DebatePhase[]; matchInfo: MatchInfo; settings?: StageSettings };
   } | null>(null);
-
-  // 生成标准导出的 JSON 字符串
-  const exportData: TournamentBundle = {
-    schema: 'debate-stage-pro-v1',
-    version: '1.0.0',
-    exportTime: new Date().toISOString(),
-    matchInfo,
-    settings,
-    phases
-  };
-
-  const exportJsonString = JSON.stringify(exportData, null, 2);
-
-  // 每次打开重置状态
-  useEffect(() => {
-    if (isOpen) {
-      setCopied(false);
-      setImportJsonText('');
-      setImportError(null);
-      setParsedPreview(null);
-    }
-  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  // 下载 .json 文件
-  const handleDownloadFile = () => {
-    try {
-      const blob = new Blob([exportJsonString], { type: 'application/json;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const safeTitle = matchInfo.tournamentTitle ? matchInfo.tournamentTitle.slice(0, 15).replace(/[\\/:*?"<>|]/g, '_') : '辩论赛制包';
-      a.href = url;
-      a.download = `${safeTitle}_${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert('下载文件失败，请使用复制文本功能');
-    }
+  // 构造完整赛事包数据结构
+  const exportPayload = {
+    schema: 'debate-stage-pro-v1',
+    exportTime: new Date().toISOString(),
+    matchInfo: {
+      tournamentTitle: matchInfo.tournamentTitle,
+      motion: matchInfo.motion,
+      affirmativeTeam: matchInfo.affirmativeTeam,
+      negativeTeam: matchInfo.negativeTeam,
+    },
+    settings: {
+      timeStep: settings.timeStep,
+      isChessClockMode: settings.isChessClockMode,
+      volume: settings.volume,
+      bellStyle: settings.bellStyle,
+    },
+    phases: phases.map(p => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      type: p.type,
+      chessMode: p.chessMode,
+      timers: p.timers.map(t => ({
+        id: t.id,
+        label: t.label,
+        durationSeconds: t.durationSeconds,
+        remainingSeconds: t.durationSeconds, // 导出时重置回完整时长
+        usedSeconds: 0,
+        isRunning: false,
+        mode: t.mode,
+        warningSeconds: t.warningSeconds,
+        foulCount: 0
+      }))
+    }))
   };
 
-  // 复制 JSON 文本
-  const handleCopyJson = () => {
-    navigator.clipboard.writeText(exportJsonString).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {
-      alert('复制失败，请手动选中文本框复制');
-    });
+  const exportJsonString = JSON.stringify(exportPayload, null, 2);
+
+  // 一键复制
+  const handleCopy = () => {
+    navigator.clipboard.writeText(exportJsonString);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  // 解析并校验输入的 JSON 数据
-  const validateAndParse = (rawText: string) => {
-    setImportError(null);
+  // 一键下载文件
+  const handleDownload = () => {
+    const cleanMotion = (matchInfo.motion || '辩论赛制').replace(/[/\\?%*:|"<>]/g, '_').slice(0, 15);
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const filename = `${cleanMotion}_赛制配置_${dateStr}.json`;
+
+    const blob = new Blob([exportJsonString], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 处理文本输入解析
+  const handleValidateImportText = (text: string) => {
+    setImportText(text);
+    setParseError(null);
     setParsedPreview(null);
 
-    const trimmed = rawText.trim();
-    if (!trimmed) {
-      return;
-    }
+    if (!text.trim()) return;
 
     try {
-      const data = JSON.parse(trimmed);
+      const parsed = JSON.parse(text);
 
-      // 兼容两种结构：标准 Bundle 结构 或 纯 phases 数组
+      // 兼容直接是 phases 数组，或是包含 matchInfo/phases 的完整赛事包
       let targetPhases: DebatePhase[] = [];
-      let targetMatchInfo: MatchInfo = matchInfo;
-      let targetSettings: StageSettings = settings;
+      let targetMatchInfo: MatchInfo = { ...matchInfo };
+      let targetSettings: StageSettings | undefined = undefined;
 
-      if (Array.isArray(data)) {
-        // 纯环节数组
-        targetPhases = data;
-      } else if (data && typeof data === 'object') {
-        if (Array.isArray(data.phases)) {
-          targetPhases = data.phases;
+      if (Array.isArray(parsed)) {
+        targetPhases = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.phases)) {
+          targetPhases = parsed.phases;
         } else {
-          throw new Error('未在数据中找到有效的辩论环节列表 (phases 数组)');
+          throw new Error('未在数据中找到有效的 phases 环节列表数组');
         }
 
-        if (data.matchInfo && typeof data.matchInfo === 'object') {
+        if (parsed.matchInfo && typeof parsed.matchInfo === 'object') {
           targetMatchInfo = {
-            tournamentTitle: data.matchInfo.tournamentTitle || matchInfo.tournamentTitle,
-            motion: data.matchInfo.motion || matchInfo.motion,
-            affirmativeTeam: data.matchInfo.affirmativeTeam || matchInfo.affirmativeTeam,
-            negativeTeam: data.matchInfo.negativeTeam || matchInfo.negativeTeam
+            tournamentTitle: parsed.matchInfo.tournamentTitle || targetMatchInfo.tournamentTitle,
+            motion: parsed.matchInfo.motion || targetMatchInfo.motion,
+            affirmativeTeam: parsed.matchInfo.affirmativeTeam || targetMatchInfo.affirmativeTeam,
+            negativeTeam: parsed.matchInfo.negativeTeam || targetMatchInfo.negativeTeam,
           };
         }
 
-        if (data.settings && typeof data.settings === 'object') {
-          targetSettings = { ...settings, ...data.settings };
+        if (parsed.settings && typeof parsed.settings === 'object') {
+          targetSettings = {
+            ...settings,
+            ...parsed.settings
+          };
         }
-      } else {
-        throw new Error('JSON 格式必须为对象或环节数组');
       }
 
       if (targetPhases.length === 0) {
-        throw new Error('赛制环节列表不能为空');
+        throw new Error('环节列表不能为空，请至少包含 1 个辩论环节');
       }
 
-      // 验证环节合法性并修补必要字段
-      const validatedPhases: DebatePhase[] = targetPhases.map((p, idx) => ({
-        id: p.id || `phase-imp-${idx}-${Date.now()}`,
+      // 规范化环节内部 timers
+      const sanitizedPhases: DebatePhase[] = targetPhases.map((p, idx) => ({
+        id: p.id || `imported-phase-${Date.now()}-${idx}`,
         name: p.name || `第 ${idx + 1} 环节`,
-        type: p.type || 'STANDARD',
+        description: p.description,
+        type: p.type || PhaseType.STANDARD,
         chessMode: Boolean(p.chessMode),
-        timers: Array.isArray(p.timers) ? p.timers.map((t, ti) => {
-          const duration = Math.max(5, parseInt(t.durationSeconds as any) || 180);
-          return {
-            id: t.id || `t-imp-${idx}-${ti}-${Date.now()}`,
-            label: t.label || (ti === 0 ? '正方辩手' : '反方辩手'),
-            durationSeconds: duration,
-            remainingSeconds: duration,
+        timers: Array.isArray(p.timers) && p.timers.length > 0 ? p.timers.map((t, tIdx) => ({
+          id: t.id || `timer-${idx}-${tIdx}-${Date.now()}`,
+          label: t.label || (tIdx === 0 ? '正方辩手' : '反方辩手'),
+          durationSeconds: Number(t.durationSeconds) > 0 ? Number(t.durationSeconds) : 180,
+          remainingSeconds: Number(t.durationSeconds) > 0 ? Number(t.durationSeconds) : 180,
+          usedSeconds: 0,
+          isRunning: false,
+          mode: t.mode === 'stopwatch' ? 'stopwatch' : 'countdown',
+          warningSeconds: Number(t.warningSeconds) >= 0 ? Number(t.warningSeconds) : 30,
+          foulCount: 0
+        })) : [
+          {
+            id: `t1-${idx}-${Date.now()}`,
+            label: '正方辩手',
+            durationSeconds: 180,
+            remainingSeconds: 180,
             usedSeconds: 0,
             isRunning: false,
-            mode: t.mode === 'stopwatch' ? 'stopwatch' : 'countdown',
-            warningSeconds: typeof t.warningSeconds === 'number' ? t.warningSeconds : 30,
+            mode: 'countdown',
+            warningSeconds: 30,
             foulCount: 0
-          };
-        }) : [
-          { id: `t-imp-${idx}-0`, label: '正方辩手', durationSeconds: 180, remainingSeconds: 180, usedSeconds: 0, isRunning: false, mode: 'countdown', warningSeconds: 30, foulCount: 0 },
-          { id: `t-imp-${idx}-1`, label: '反方辩手', durationSeconds: 180, remainingSeconds: 180, usedSeconds: 0, isRunning: false, mode: 'countdown', warningSeconds: 30, foulCount: 0 }
+          },
+          {
+            id: `t2-${idx}-${Date.now()}`,
+            label: '反方辩手',
+            durationSeconds: 180,
+            remainingSeconds: 180,
+            usedSeconds: 0,
+            isRunning: false,
+            mode: 'countdown',
+            warningSeconds: 30,
+            foulCount: 0
+          }
         ]
       }));
 
-      const finalBundle: TournamentBundle = {
-        schema: 'debate-stage-pro-v1',
-        version: '1.0.0',
-        exportTime: new Date().toISOString(),
-        matchInfo: targetMatchInfo,
-        settings: targetSettings,
-        phases: validatedPhases
-      };
-
       setParsedPreview({
-        phaseCount: validatedPhases.length,
+        phasesCount: sanitizedPhases.length,
+        tournamentTitle: targetMatchInfo.tournamentTitle,
         motion: targetMatchInfo.motion,
-        affTeam: targetMatchInfo.affirmativeTeam,
-        negTeam: targetMatchInfo.negativeTeam,
-        validData: finalBundle
+        affirmativeTeam: targetMatchInfo.affirmativeTeam,
+        negativeTeam: targetMatchInfo.negativeTeam,
+        data: {
+          phases: sanitizedPhases,
+          matchInfo: targetMatchInfo,
+          settings: targetSettings
+        }
       });
-
     } catch (err: any) {
-      setImportError(err.message || 'JSON 解析语法错误，请检查格式');
+      setParseError(err.message || 'JSON 格式解析失败，请检查语法结构');
     }
   };
 
-  // 处理文件读取
+  // 处理文件上传
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -194,49 +211,50 @@ export const JsonTransferModal: React.FC<JsonTransferModalProps> = ({
     reader.onload = (event) => {
       const content = event.target?.result as string;
       if (content) {
-        setImportJsonText(content);
-        validateAndParse(content);
+        handleValidateImportText(content);
       }
     };
-    reader.onerror = () => {
-      setImportError('读取本地文件失败，请重试');
-    };
     reader.readAsText(file);
+    // 重置 input 以便再次选择同一文件
+    e.target.value = '';
   };
 
-  // 执行最终导入
-  const handleExecuteImport = () => {
-    if (!parsedPreview?.validData) return;
-    const { phases: newPhases, matchInfo: newMatchInfo, settings: newSettings } = parsedPreview.validData;
-    onImport(newPhases, newMatchInfo, newSettings);
+  // 确认导入生效
+  const handleConfirmImport = () => {
+    if (!parsedPreview) return;
+    onImport(
+      parsedPreview.data.phases,
+      parsedPreview.data.matchInfo,
+      parsedPreview.data.settings
+    );
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-in fade-in">
-      <div className="w-full max-w-3xl max-h-[90vh] bg-[#0B1120] border border-slate-700/80 rounded-3xl flex flex-col shadow-2xl overflow-hidden">
+      <div className="w-full max-w-4xl max-h-[90vh] bg-[#0B1120] border border-slate-700/80 rounded-3xl flex flex-col shadow-2xl overflow-hidden">
         
         {/* 头部 */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-              <FileCode size={20} />
+              <FileCode size={22} />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">赛制配置导入与导出</h3>
-              <p className="text-xs text-slate-400">以标准 JSON 赛事包分享或载入整场辩论配置</p>
+              <h2 className="text-xl font-bold text-white">赛制配置模板共享</h2>
+              <p className="text-xs text-slate-400">一键导出或导入包含赛制环节、辩题与对阵队伍的完整赛事包</p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
           >
-            <X size={18} />
+            <X size={20} />
           </button>
         </div>
 
-        {/* 标签栏 */}
-        <div className="px-6 pt-2 border-b border-slate-800 bg-slate-900/40 flex items-center gap-2">
+        {/* 标签切换 */}
+        <div className="px-6 pt-3 border-b border-slate-800 bg-slate-900/30 flex items-center gap-2">
           <button
             onClick={() => setActiveTab('export')}
             className={`flex items-center gap-2 px-5 py-2.5 border-b-2 font-bold text-sm transition-all ${
@@ -245,8 +263,8 @@ export const JsonTransferModal: React.FC<JsonTransferModalProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Download size={15} />
-            导出当前赛制配置
+            <Download size={16} />
+            导出赛制包
           </button>
           <button
             onClick={() => setActiveTab('import')}
@@ -256,142 +274,155 @@ export const JsonTransferModal: React.FC<JsonTransferModalProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Upload size={15} />
-            导入赛制配置包
+            <Upload size={16} />
+            导入赛制包
           </button>
         </div>
 
-        {/* 内容主体 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* 内容区 */}
+        <div className="flex-1 overflow-y-auto p-6">
           
           {/* TAB 1: 导出 */}
           {activeTab === 'export' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-slate-900/80 rounded-2xl border border-slate-800">
+              {/* 赛事摘要卡片 */}
+              <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div>
-                  <h4 className="text-sm font-bold text-white">完整赛事包导出就绪</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    已打包 {phases.length} 个辩论环节、时长与预警规则，以及当前辩题与对阵队伍
-                  </p>
+                  <span className="text-slate-500 block">赛事全称</span>
+                  <span className="font-bold text-white truncate block">{matchInfo.tournamentTitle}</span>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={handleCopyJson}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition-colors active:scale-95"
-                  >
-                    {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                    {copied ? '已复制' : '复制 JSON 代码'}
-                  </button>
-                  <button
-                    onClick={handleDownloadFile}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95"
-                  >
-                    <Download size={14} />
-                    下载 .json 文件
-                  </button>
+                <div>
+                  <span className="text-slate-500 block">对阵双方</span>
+                  <span className="font-bold text-white truncate block">
+                    <span className="text-red-400">{matchInfo.affirmativeTeam}</span> 对阵 <span className="text-blue-400">{matchInfo.negativeTeam}</span>
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">包含环节数量</span>
+                  <span className="font-bold text-blue-400 font-mono">{phases.length} 个赛段环节</span>
                 </div>
               </div>
 
-              {/* JSON 预览框 */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                  JSON 代码预览 (可直接全选复制)
-                </label>
-                <textarea
-                  readOnly
-                  value={exportJsonString}
-                  rows={12}
-                  className="w-full bg-[#070B14] border border-slate-800 p-4 rounded-xl text-xs font-mono text-slate-300 focus:outline-none select-all resize-none"
-                />
+              {/* 代码展示区 */}
+              <div className="relative">
+                <div className="flex items-center justify-between pb-2 text-xs text-slate-400">
+                  <span>完整配置 JSON 预览：</span>
+                  <span>可直接复制或下载分享</span>
+                </div>
+                <pre className="w-full h-72 sm:h-80 bg-black/60 border border-slate-800 rounded-xl p-4 overflow-auto text-xs font-mono text-emerald-400/90 leading-relaxed scrollbar-thin">
+                  {exportJsonString}
+                </pre>
+              </div>
+
+              {/* 导出操作条 */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all active:scale-95"
+                >
+                  {copied ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+                  {copied ? '已成功复制 JSON 代码' : '复制代码到剪贴板'}
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95"
+                >
+                  <Download size={16} />
+                  下载 .json 配置文件
+                </button>
               </div>
             </div>
           )}
 
           {/* TAB 2: 导入 */}
           {activeTab === 'import' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               
-              {/* 文件上传入口 */}
-              <div className="p-5 border-2 border-dashed border-slate-700/80 hover:border-blue-500/60 rounded-2xl bg-slate-900/40 text-center transition-colors relative cursor-pointer group">
+              {/* 文件上传触发区 */}
+              <div className="relative border-2 border-dashed border-slate-700/80 hover:border-blue-500/80 bg-slate-900/40 hover:bg-blue-500/5 rounded-2xl p-6 text-center transition-all cursor-pointer group">
                 <input
                   type="file"
                   accept=".json,application/json"
                   onChange={handleFileUpload}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
                 <div className="flex flex-col items-center justify-center gap-2 pointer-events-none">
-                  <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <Upload size={20} />
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                    <Upload size={22} />
                   </div>
-                  <div>
-                    <span className="text-sm font-bold text-slate-200">点击选择本地 .json 文件</span>
-                    <span className="text-xs text-slate-400 block mt-0.5">或将配置文件拖拽至此区域自动读取</span>
-                  </div>
+                  <div className="text-sm font-bold text-white">点击选择或拖拽 .json 配置文件到此处</div>
+                  <div className="text-xs text-slate-400">支持读取由本系统导出的完整赛事配置文件</div>
                 </div>
               </div>
 
-              {/* 文本粘贴输入 */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    或者直接粘贴 JSON 代码
-                  </label>
-                  {importJsonText && (
+              {/* 或者粘贴 JSON 文本 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>或者直接粘贴 JSON 文本：</span>
+                  {importText && (
                     <button
-                      onClick={() => {
-                        setImportJsonText('');
-                        setParsedPreview(null);
-                        setImportError(null);
-                      }}
-                      className="text-xs text-slate-500 hover:text-slate-300"
+                      onClick={() => handleValidateImportText('')}
+                      className="text-slate-500 hover:text-slate-300"
                     >
                       清空输入
                     </button>
                   )}
                 </div>
                 <textarea
-                  placeholder="在此粘贴他人分享给您的赛制 JSON 格式代码..."
-                  value={importJsonText}
-                  onChange={e => {
-                    const text = e.target.value;
-                    setImportJsonText(text);
-                    validateAndParse(text);
-                  }}
                   rows={6}
-                  className="w-full bg-[#070B14] border border-slate-800 p-3.5 rounded-xl text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+                  value={importText}
+                  onChange={e => handleValidateImportText(e.target.value)}
+                  placeholder="在此处粘贴他人分享的 JSON 配置代码..."
+                  className="w-full bg-slate-900/80 border border-slate-800 focus:border-blue-500 rounded-xl p-3 text-xs font-mono text-slate-200 focus:outline-none scrollbar-thin"
                 />
               </div>
 
-              {/* 错误提示 */}
-              {importError && (
-                <div className="flex items-center gap-2 p-3 bg-red-950/40 border border-red-500/40 text-red-300 rounded-xl text-xs font-medium">
-                  <AlertTriangle size={16} className="shrink-0" />
-                  <span>{importError}</span>
+              {/* 解析错误提示 */}
+              {parseError && (
+                <div className="p-3 bg-red-950/40 border border-red-500/40 rounded-xl flex items-center gap-2.5 text-xs text-red-300">
+                  <AlertCircle size={16} className="text-red-400 shrink-0" />
+                  <span>{parseError}</span>
                 </div>
               )}
 
               {/* 解析成功预览 */}
               {parsedPreview && (
-                <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl space-y-3">
-                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                <div className="p-4 bg-emerald-950/30 border border-emerald-500/40 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
                     <CheckCircle2 size={16} />
-                    配置解析成功，就绪导入！
+                    配置校验成功！请确认以下载入信息：
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
-                    <div className="p-2.5 bg-slate-900/60 rounded-lg">
-                      <span className="text-slate-400 text-[11px] block">赛程环节</span>
-                      <strong className="text-white font-mono text-sm">{parsedPreview.phaseCount} 个环节</strong>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-black/40 p-3 rounded-xl border border-emerald-500/20">
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">赛事名称</span>
+                      <span className="font-semibold text-white">{parsedPreview.tournamentTitle}</span>
                     </div>
-                    <div className="p-2.5 bg-slate-900/60 rounded-lg">
-                      <span className="text-slate-400 text-[11px] block">对阵队伍</span>
-                      <span className="text-red-400 font-semibold">{parsedPreview.affTeam}</span>
-                      <span className="text-slate-500 mx-1">vs</span>
-                      <span className="text-blue-400 font-semibold">{parsedPreview.negTeam}</span>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">环节数量</span>
+                      <span className="font-semibold text-blue-400 font-mono">{parsedPreview.phasesCount} 个赛段环节</span>
                     </div>
-                    <div className="sm:col-span-2 p-2.5 bg-slate-900/60 rounded-lg truncate">
-                      <span className="text-slate-400 text-[11px] block">辩论主辩题</span>
-                      <span className="text-slate-200 font-medium truncate">{parsedPreview.motion}</span>
+                    <div className="col-span-1 sm:col-span-2">
+                      <span className="text-slate-400 block text-[11px]">辩题</span>
+                      <span className="font-semibold text-amber-300">{parsedPreview.motion}</span>
                     </div>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">正方队伍</span>
+                      <span className="font-semibold text-red-400">{parsedPreview.affirmativeTeam}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">反方队伍</span>
+                      <span className="font-semibold text-blue-400">{parsedPreview.negativeTeam}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end pt-1">
+                    <button
+                      onClick={handleConfirmImport}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
+                    >
+                      <Check size={16} />
+                      确认覆盖并应用到当前赛场
+                    </button>
                   </div>
                 </div>
               )}
@@ -399,37 +430,6 @@ export const JsonTransferModal: React.FC<JsonTransferModalProps> = ({
             </div>
           )}
 
-        </div>
-
-        {/* 底部操作条 */}
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
-          >
-            关闭
-          </button>
-
-          {activeTab === 'import' && (
-            <button
-              onClick={handleExecuteImport}
-              disabled={!parsedPreview?.validData}
-              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 disabled:hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95"
-            >
-              <span>确认载入并应用此配置</span>
-              <ArrowRight size={14} />
-            </button>
-          )}
-
-          {activeTab === 'export' && (
-            <button
-              onClick={handleDownloadFile}
-              className="flex items-center gap-1.5 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 transition-all active:scale-95"
-            >
-              <Download size={14} />
-              <span>下载配置文件</span>
-            </button>
-          )}
         </div>
 
       </div>
